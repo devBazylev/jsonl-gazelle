@@ -4,7 +4,7 @@
   <img src="jsonl-gazelle.png" alt="JSONL Gazelle" width="200">
 </div>
 
-Fast JSONL viewer / editor for VS Code with advanced features including Table View and Pretty Print view. JSONL (JSON Lines) is increasingly important for machine learning datasets, log analysis, data streaming, and LLM training. Unlike regular JSON, it can be processed line-by-line making it perfect for large datasets.
+Fast JSONL / NDJSON viewer / editor for VS Code with advanced features including Table View and Pretty Print view. JSONL (JSON Lines, also known as NDJSON — newline-delimited JSON) is increasingly important for machine learning datasets, log analysis, data streaming, and LLM training. Unlike regular JSON, it can be processed line-by-line making it perfect for large datasets.
 
 ![JSONL Gazelle Screenshot - Light Theme - Table View](jsonl-gazelle-screenshot.jpg)
 
@@ -35,7 +35,7 @@ Fast JSONL viewer / editor for VS Code with advanced features including Table Vi
 
 ## Usage
 
-1. Open any `.jsonl` file in VS Code
+1. Open any `.jsonl` or `.ndjson` file in VS Code
 2. The file will automatically open in the JSONL Gazelle viewer
 4. Table View: Click ▼ buttons in column headers or double-click expandable cells to expand objects/arrays into separate columns
 5. Pretty Print view: You can edit inline

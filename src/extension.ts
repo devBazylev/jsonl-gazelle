@@ -66,8 +66,9 @@ class LargeFileDecorationProvider implements vscode.FileDecorationProvider {
         token: vscode.CancellationToken
     ): Promise<vscode.FileDecoration | undefined> {
         try {
-            // Only process JSONL files
-            if (uri.scheme !== 'file' || !uri.fsPath || path.extname(uri.fsPath) !== '.jsonl') {
+            // Only process JSONL/NDJSON files
+            const ext = path.extname(uri.fsPath || '');
+            if (uri.scheme !== 'file' || !uri.fsPath || (ext !== '.jsonl' && ext !== '.ndjson')) {
                 return undefined;
             }
 
