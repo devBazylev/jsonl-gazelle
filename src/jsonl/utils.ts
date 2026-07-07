@@ -135,6 +135,82 @@ export function getDisplayName(path: string): string {
 }
 
 /**
+ * Convert Pretty Print view content (a sequence of pretty-printed top-level
+ * JSON values separated by newlines) back into compact JSONL.
+ *
+ * Returns null if any part of the content is not valid JSON, so callers can
+ * hold off applying a mid-edit state instead of corrupting the document.
+ *
+ * @param prettyContent - The Pretty Print editor content
+ * @returns Compact JSONL (one value per line), or null if content is invalid
+ */
+export function convertPrettyToJsonl(prettyContent: string): string | null {
+    if (!prettyContent.trim()) {
+        return '';
+    }
+
+    const lines = prettyContent.split('\n');
+    const jsonlLines: string[] = [];
+    let buffer = '';
+    let depth = 0;
+    let inString = false;
+
+    for (const line of lines) {
+        buffer = buffer ? buffer + '\n' + line : line;
+
+        // Track brace/bracket depth (string- and escape-aware) so we only
+        // attempt a parse when a top-level value could be complete
+        let escapeNext = false;
+        for (const char of line) {
+            if (escapeNext) {
+                escapeNext = false;
+                continue;
+            }
+            if (char === '\\') {
+                escapeNext = inString;
+                continue;
+            }
+            if (char === '"') {
+                inString = !inString;
+                continue;
+            }
+            if (!inString) {
+                if (char === '{' || char === '[') {
+                    depth++;
+                } else if (char === '}' || char === ']') {
+                    depth--;
+                }
+            }
+        }
+
+        if (inString || depth > 0) {
+            continue;
+        }
+
+        const candidate = buffer.trim();
+        if (!candidate) {
+            buffer = '';
+            continue;
+        }
+
+        try {
+            jsonlLines.push(JSON.stringify(JSON.parse(candidate)));
+            buffer = '';
+        } catch {
+            // Not a complete value yet (e.g. a bare scalar still being typed
+            // or a trailing comma) - keep accumulating lines
+        }
+    }
+
+    if (buffer.trim()) {
+        // Leftover content never became valid JSON
+        return null;
+    }
+
+    return jsonlLines.join('\n');
+}
+
+/**
  * Check if a value is a stringified JSON object or array
  *
  * @param value - The value to check

@@ -3099,6 +3099,15 @@ export const scripts = `
                 closeFindReplaceBar();
             }
             
+            // Flush pending edits when switching away from pretty print view (without saving)
+            if (currentView === 'json' && viewType !== 'json' && prettyEditor) {
+                clearTimeout(window.prettyEditTimeout);
+                vscode.postMessage({
+                    type: 'prettyContentChanged',
+                    newContent: prettyEditor.getValue()
+                });
+            }
+
             // Update data model when switching away from raw view (without saving)
             if (currentView === 'raw' && viewType !== 'raw') {
                 // Get current content from Monaco editor and update data model without saving
