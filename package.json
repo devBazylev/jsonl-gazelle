@@ -35,7 +35,9 @@
   "activationEvents": [
     "onStartupFinished",
     "onCustomEditor:jsonl-gazelle.jsonlViewer",
-    "onCommand:jsonl-gazelle.openLargeFile"
+    "onCommand:jsonl-gazelle.openLargeFile",
+    "onCommand:jsonl-gazelle.exportCSV",
+    "onCommand:jsonl-gazelle.openSettings"
   ],
   "main": "./out/extension.js",
   "contributes": {

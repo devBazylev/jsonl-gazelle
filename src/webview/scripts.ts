@@ -3049,6 +3049,9 @@ export const scripts = `
                 case 'recentEnumValuesLoaded':
                     recentEnumValues = message.recentValues || [];
                     break;
+                case 'openSettings':
+                    openSettingsModal();
+                    break;
                 case 'columnSuggestions':
                     handleAISuggestions(message.suggestions, message.error);
                     break;
