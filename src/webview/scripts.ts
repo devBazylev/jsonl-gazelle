@@ -1400,9 +1400,13 @@ export const scripts = `
                 return;
             }
             
-            dropdown.innerHTML = valuesToShow.map(value => 
-                \`<div class="enum-history-item">\${value}</div>\`
-            ).join('');
+            dropdown.replaceChildren();
+            valuesToShow.forEach(value => {
+                const item = document.createElement('div');
+                item.className = 'enum-history-item';
+                item.textContent = value;
+                dropdown.appendChild(item);
+            });
             
             dropdown.style.display = 'block';
             updateEnumDropdownPosition();
