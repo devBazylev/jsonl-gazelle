@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { JsonlViewerProvider } from './jsonlViewerProvider';
+import { registerDiffCommands } from './jsonlDiffProvider';
 
 function getNonce(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -88,6 +89,9 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     context.subscriptions.push(openSettingsCommand);
+
+    // Register JSONL-aware diff commands
+    registerDiffCommands(context);
 
     // Register file decoration provider for large files
     const fileDecorationProvider = new LargeFileDecorationProvider();

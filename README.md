@@ -32,6 +32,7 @@ Fast JSONL / NDJSON viewer / editor for VS Code with advanced features including
 - **Smart Column Detection**: Maps common subpaths of each JSONL row into table columns automatically
 - **Column Expansion**: Click ▼ to expand objects/arrays into separate columns (e.g., `user.name`, `orders[0]`)
 - **Column Management**: Right-click context menu on table headers to add, remove, or toggle column visibility
+- **JSONL-Aware Diff**: Diff a file against Git HEAD or another JSONL file with row alignment and field-level change highlighting — edited rows show exactly which fields changed (`old → new`) instead of a wall of raw JSON
 - **Memory Efficient**: All processing happens in-memory without creating separate files
 - **AI Features**: Generate columns and rows with AI using OpenAI, Anthropic, Google Gemini, or a local OpenAI-compatible server (Ollama, LM Studio, vLLM, ...) — model lists are fetched live from each provider
 
@@ -44,6 +45,7 @@ Fast JSONL / NDJSON viewer / editor for VS Code with advanced features including
 6. Pretty Print navigation: Use `Ctrl+Alt+↑` / `Ctrl+Alt+↓` (`Cmd+Option+↑` / `Cmd+Option+↓` on macOS) to jump between JSONL entries
 7. Raw view navigation: Use `Ctrl+Alt+↑` / `Ctrl+Alt+↓` (`Cmd+Option+↑` / `Cmd+Option+↓` on macOS) to jump to the previous/next JSONL line
 8. Move current line: Use `Alt+↑` / `Alt+↓` (`Option+↑` / `Option+↓` on macOS) to move the current line up or down in the editor
+9. Diff view: Run **JSONL Gazelle: Diff with Git HEAD** (command palette, editor title button, or right-click in the Explorer / Source Control view) to see uncommitted changes with per-field highlighting; use **JSONL Gazelle: Compare with JSONL File...** to compare two files. Click a modified row to see the full before/after JSON, and click a `⋯ unchanged lines` separator to reveal hidden context
 
 ## Extension Development
 
