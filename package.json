@@ -1,7 +1,7 @@
 {
   "name": "jsonl-gazelle",
   "displayName": "JSONL Gazelle",
-  "description": "Fast JSONL viewer / editor for VS Code with advanced features including Table View and Pretty Print view.",
+  "description": "Fast JSONL / NDJSON viewer / editor for VS Code with advanced features including Table View and Pretty Print view.",
   "version": "0.4.3",
   "publisher": "gabor",
   "icon": "jsonl-gazelle.png",
@@ -14,6 +14,8 @@
   ],
   "keywords": [
     "jsonl",
+    "ndjson",
+    "newline-delimited json",
     "json",
     "data",
     "table",
@@ -46,6 +48,9 @@
         "selector": [
           {
             "filenamePattern": "*.jsonl"
+          },
+          {
+            "filenamePattern": "*.ndjson"
           }
         ],
         "priority": "default"
@@ -73,21 +78,21 @@
       "commandPalette": [
         {
           "command": "jsonl-gazelle.openSettings",
-          "when": "resourceExtname == .jsonl"
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson"
         },
         {
           "command": "jsonl-gazelle.exportCSV",
-          "when": "resourceExtname == .jsonl"
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson"
         },
         {
           "command": "jsonl-gazelle.openLargeFile",
-          "when": "resourceExtname == .jsonl"
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson"
         }
       ],
       "explorer/context": [
         {
           "command": "jsonl-gazelle.openLargeFile",
-          "when": "resourceExtname == .jsonl",
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
           "group": "navigation"
         }
       ]
