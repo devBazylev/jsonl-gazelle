@@ -7,6 +7,8 @@ import { getHtmlTemplate } from './webview/template';
 import { styles } from './webview/styles';
 import { scripts } from './webview/scripts';
 
+type ColumnPreferences = { order: string[]; visibility: { [path: string]: boolean }; updatedAt?: number };
+
 export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     private static readonly viewType = 'jsonl-gazelle.jsonlViewer';
     private rows: JsonRow[] = [];
@@ -34,9 +36,11 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     private pendingSaveTimeout: NodeJS.Timeout | null = null; // For debouncing saves
     private activeDocumentUri: string | null = null;
     private manualColumnsPerFile: Map<string, ColumnInfo[]> = new Map(); // Store manual columns per file
-    private columnPreferencesPerFile: Map<string, { order: string[]; visibility: { [path: string]: boolean } }> = new Map();
+    private columnPreferencesPerFile: Map<string, ColumnPreferences> = new Map();
     private ratingPromptCallback: (() => Promise<void>) | null = null; // Callback for rating prompt
     private readonly UI_PREFS_KEY = 'jsonl-gazelle.uiPreferences';
+    private readonly COLUMN_PREFS_KEY = 'jsonl-gazelle.columnPreferences';
+    private readonly MAX_COLUMN_PREF_ENTRIES = 100; // Cap stored per-file entries so global state doesn't grow unboundedly
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -309,7 +313,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             if (savedManualColumns.length > 0) {
                 this.restoreManualColumns(savedManualColumns);
             }
-            
+
+            // Re-apply persisted column order and visibility for this file
+            this.restoreColumnPreferences(fileUri);
+
             this.filteredRows = this.rows; // Point to same array for small files
             this.filteredRowIndices = this.rows.map((_, index) => index);
             this.isIndexing = false;
@@ -341,7 +348,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         if (savedManualColumns.length > 0) {
             this.restoreManualColumns(savedManualColumns);
         }
-        
+
+        // Re-apply persisted column order and visibility for this file
+        this.restoreColumnPreferences(fileUri);
+
         this.filteredRows = this.rows; // Point to same array initially
         this.filteredRowIndices = this.rows.map((_, index) => index);
         this.isIndexing = false;
@@ -789,6 +799,9 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             const fileUri = document.uri.toString();
             const manualColumns = this.columns.filter(col => col.isManuallyAdded);
             this.manualColumnsPerFile.set(fileUri, manualColumns);
+
+            // Persist the new column order for this file
+            this.updateColumnPreferencesForDocument(document);
         }
         
         // If document is provided, reorder keys in JSON and save
@@ -900,12 +913,23 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         this.columnPreferencesPerFile.set(fileUri, { order, visibility });
 
         // Persist to global state so preferences survive reloads
-        const existing = this.context.globalState.get<{ [uri: string]: { order: string[]; visibility: { [path: string]: boolean } } }>('jsonl-gazelle.columnPreferences', {});
+        const existing = this.context.globalState.get<{ [uri: string]: ColumnPreferences }>(this.COLUMN_PREFS_KEY, {});
 
-        existing[fileUri] = { order, visibility };
+        existing[fileUri] = { order, visibility, updatedAt: Date.now() };
+
+        // Keep only the most recently used entries
+        let toStore: { [uri: string]: ColumnPreferences } = existing;
+        const uris = Object.keys(existing);
+        if (uris.length > this.MAX_COLUMN_PREF_ENTRIES) {
+            toStore = {};
+            uris
+                .sort((a, b) => (existing[b].updatedAt || 0) - (existing[a].updatedAt || 0))
+                .slice(0, this.MAX_COLUMN_PREF_ENTRIES)
+                .forEach(uri => { toStore[uri] = existing[uri]; });
+        }
 
         // Fire and forget; log if it fails
-        const updatePromise = this.context.globalState.update('jsonl-gazelle.columnPreferences', existing);
+        const updatePromise = this.context.globalState.update(this.COLUMN_PREFS_KEY, toStore);
 
         updatePromise.then(undefined, (err: unknown) => {
             console.error('Error saving column preferences:', err);
@@ -918,7 +942,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
 
         if (!prefs) {
             // Load from global state
-            const allPrefs = this.context.globalState.get<{ [uri: string]: { order: string[]; visibility: { [path: string]: boolean } } }>('jsonl-gazelle.columnPreferences', {});
+            const allPrefs = this.context.globalState.get<{ [uri: string]: ColumnPreferences }>(this.COLUMN_PREFS_KEY, {});
 
             prefs = allPrefs[fileUri];
 
@@ -2653,6 +2677,9 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     }
 
     private async updateViewPreference(viewType: 'table' | 'json' | 'raw'): Promise<void> {
+        if (viewType !== 'table' && viewType !== 'json' && viewType !== 'raw') {
+            return;
+        }
         try {
             const existing = this.context.globalState.get<{ lastView?: 'table' | 'json' | 'raw'; wrapText?: boolean }>(this.UI_PREFS_KEY, {});
             existing.lastView = viewType;

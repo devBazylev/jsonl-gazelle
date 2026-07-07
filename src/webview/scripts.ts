@@ -26,6 +26,7 @@ export const scripts = `
         };
         
         let contextMenuColumn = null;
+        let uiPreferencesApplied = false;
         let contextMenuRow = null;
         let currentView = 'table';
         let isResizing = false;
@@ -2065,27 +2066,13 @@ export const scripts = `
                 document.getElementById('dataTable').style.display = 'table';
             }
             
-            // Apply UI preferences once data is ready
-            if (data.uiPreferences) {
-                // Switch to the last used view if different from default
+            // Restore the last used view once, on the first update after load.
+            // Later updates (cell edits, chunked loading) must not override in-session choices.
+            if (data.uiPreferences && !uiPreferencesApplied) {
                 const desiredView = data.uiPreferences.lastView || 'table';
 
                 if (desiredView !== currentView) {
-                    switchView(desiredView);
-                }
-
-                // Update wrap text checkbox and table class after table layout exists
-                const wrapCheckbox = document.getElementById('wrapTextCheckbox');
-                const table = document.getElementById('dataTable');
-
-                if (wrapCheckbox && table) {
-                    wrapCheckbox.checked = !!data.uiPreferences.wrapText;
-
-                    if (wrapCheckbox.checked) {
-                        table.classList.add('text-wrap');
-                    } else {
-                        table.classList.remove('text-wrap');
-                    }
+                    switchView(desiredView, false);
                 }
             }
 
@@ -2098,7 +2085,7 @@ export const scripts = `
                 errorCountElement.style.display = 'flex';
                 // Default to raw view if there are errors
                 if (currentView === 'table') {
-                    switchView('raw');
+                    switchView('raw', false);
                 }
             } else {
                 errorCountElement.style.display = 'none';
@@ -2107,6 +2094,31 @@ export const scripts = `
             // Build table header and defer row rendering via virtualization
             buildTableHeader(data);
             renderTableChunk(true);
+
+            // Restore wrap text once, now that the table header exists
+            if (data.uiPreferences && !uiPreferencesApplied) {
+                uiPreferencesApplied = true;
+
+                const wrapCheckbox = document.getElementById('wrapTextCheckbox');
+                const desiredWrap = !!data.uiPreferences.wrapText;
+
+                if (wrapCheckbox && wrapCheckbox.checked !== desiredWrap) {
+                    wrapCheckbox.checked = desiredWrap;
+
+                    if (currentView === 'table') {
+                        // Go through the checkbox's change handler so the
+                        // width-freezing logic sees the visible table
+                        wrapCheckbox.dispatchEvent(new Event('change'));
+                    } else {
+                        // Table is hidden, so widths can't be measured; just
+                        // toggle the class and let auto layout apply on switch
+                        const table = document.getElementById('dataTable');
+                        if (table) {
+                            table.classList.toggle('text-wrap', desiredWrap);
+                        }
+                    }
+                }
+            }
 
             // Reset JSON rendering state when data updates
             if (currentView === 'json') {
@@ -3117,7 +3129,9 @@ export const scripts = `
         }, 5000);
         
         // View control functions
-        function switchView(viewType) {
+        // persistPreference is false for programmatic switches (preference restore,
+        // error fallback) so they don't overwrite the user's saved choice
+        function switchView(viewType, persistPreference = true) {
             // Don't switch if already on the same view
             if (currentView === viewType) {
                 return;
@@ -3153,10 +3167,12 @@ export const scripts = `
             currentView = viewType;
 
             // Persist view preference globally
-            vscode.postMessage({
-                type: 'setViewPreference',
-                viewType: viewType
-            });
+            if (persistPreference) {
+                vscode.postMessage({
+                    type: 'setViewPreference',
+                    viewType: viewType
+                });
+            }
             
             // Show animated gazelle during view switch
             const logo = document.getElementById('logo');
@@ -3179,7 +3195,7 @@ export const scripts = `
             document.getElementById('jsonViewContainer').style.display = 'none';
             document.getElementById('rawViewContainer').style.display = 'none';
             
-            // Show/hide controls based on view
+            // Show/hide column manager and wrap text controls based on view
             const columnManagerBtn = document.getElementById('columnManagerBtn');
             const wrapTextControl = document.querySelector('.wrap-text-control');
             const findReplaceBtn = document.getElementById('findReplaceBtn');
@@ -3190,7 +3206,7 @@ export const scripts = `
                 case 'table':
                     document.getElementById('tableViewContainer').style.display = 'block';
                     document.getElementById('dataTable').style.display = 'table';
-                    // In table view, show all controls
+                    // Show column controls for table view
                     columnManagerBtn.style.display = 'flex';
                     wrapTextControl.style.display = 'flex';
                     findReplaceBtn.style.display = 'flex';
@@ -3206,11 +3222,10 @@ export const scripts = `
                 case 'json':
                     document.getElementById('jsonViewContainer').style.display = 'block';
                     document.getElementById('jsonViewContainer').classList.add('isolated');
-                    // Column manager only makes sense for table view
+                    // Hide column controls for json view
                     columnManagerBtn.style.display = 'none';
-                    // Keep wrap text and settings visible so they feel global
-                    wrapTextControl.style.display = 'flex';
-                    settingsBtn.style.display = 'flex';
+                    wrapTextControl.style.display = 'none';
+                    settingsBtn.style.display = 'none';
                     // Show find button (triggers Monaco's find widget)
                     findReplaceBtn.style.display = 'flex';
 
@@ -3237,11 +3252,10 @@ export const scripts = `
                     break;
                 case 'raw':
                     document.getElementById('rawViewContainer').style.display = 'block';
-                    // Column manager only makes sense for table view
+                    // Hide column controls for raw view
                     columnManagerBtn.style.display = 'none';
-                    // Keep wrap text and settings visible so they feel global
-                    wrapTextControl.style.display = 'flex';
-                    settingsBtn.style.display = 'flex';
+                    wrapTextControl.style.display = 'none';
+                    settingsBtn.style.display = 'none';
                     // Show find button (triggers Monaco's find widget)
                     findReplaceBtn.style.display = 'flex';
                     // Use setTimeout to allow the loading animation to show before rendering
