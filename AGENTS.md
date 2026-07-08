@@ -1,419 +1,109 @@
-# AGENTS.md - AI Agent Integration Guide
+# AGENTS.md — Contributor & AI Agent Guide
 
-This document explains how AI agents can interact with, extend, and integrate with the JSONL Gazelle VS Code extension.
+This document describes the actual architecture of JSONL Gazelle so that human contributors and AI coding agents can navigate, extend, and test the codebase. Everything here is grounded in the current source — if this file and the code disagree, the code wins (and this file should be fixed).
 
 ## Overview
 
-JSONL Gazelle is a VS Code extension that provides a powerful interface for viewing, editing, and analyzing JSONL (JSON Lines) files. It features table views, AI integration, search capabilities, and export functionality. This guide outlines how AI agents can leverage and extend these capabilities.
+JSONL Gazelle is a VS Code extension that registers a **custom text editor** (`jsonl-gazelle.jsonlViewer`) for `.jsonl` and `.ndjson` files. It renders three views — Table, Pretty Print, and Raw — inside a single webview, supports in-place editing that writes back to the underlying text document, and includes optional OpenAI-powered features (AI columns, AI row generation, column suggestions).
 
-## Core Architecture
+## Repository Layout
 
-### Extension Structure
-- **Main Entry Point**: `src/extension.ts` - Registers the custom editor provider
-- **Core Provider**: `src/jsonlViewerProvider.ts` - Handles JSONL parsing, UI rendering, and AI integration
-- **Webview Interface**: HTML/CSS/JavaScript frontend embedded in VS Code
+| Path | Purpose |
+|---|---|
+| `src/extension.ts` | Activation: registers the custom editor provider, the `jsonl-gazelle.refresh` and `jsonl-gazelle.openLargeFile` (split) commands, a file decoration provider that badges large files, and the rating prompt manager. |
+| `src/jsonlViewerProvider.ts` | The core `CustomTextEditorProvider`: parses JSONL, manages rows/columns/search state, handles all webview messages, applies document edits, calls the OpenAI API. |
+| `src/webview/template.ts` | Webview HTML, exported as a template-literal function `getHtmlTemplate(...)`. |
+| `src/webview/styles.ts` | Webview CSS as one exported string. |
+| `src/webview/scripts.ts` | Webview JavaScript as one exported string (table rendering, view switching, editing UI, find/replace, modals). |
+| `src/jsonl/types.ts` | Shared interfaces (`JsonRow`, `ParsedLine`, `ColumnInfo`). |
+| `src/jsonl/utils.ts` | Pure helpers: nested get/set/delete by dot-path, pretty→JSONL conversion, stringified-JSON detection. |
+| `src/jsonl/rowMapping.ts` | Search filtering that preserves original row indices. |
+| `test/` | Plain Node test scripts (no framework), run by `npm test`. |
+| `test-data/` | Sample JSONL files plus `generate-large.js` for a ~64 MB stress file. |
 
-### Key Components
+There is **no bundler for the webview**: `getHtmlForWebview()` stitches `template.ts` + `styles.ts` + `scripts.ts` into a single HTML string. The Monaco editor (used for Raw and Pretty Print views) is loaded at runtime from `https://cdn.jsdelivr.net`.
 
-#### 1. Custom Editor Provider
-```typescript
-class JsonlViewerProvider implements vscode.CustomTextEditorProvider
-```
-- Handles JSONL file parsing and validation
-- Manages column detection and expansion
-- Provides search and replace functionality
-- Integrates with OpenAI API for AI features
+## Build, Test, Lint
 
-#### 2. Data Models
-```typescript
-interface JsonRow {
-    [key: string]: any;
-    _aiResponse?: string;
-}
-
-interface ColumnInfo {
-    path: string;
-    displayName: string;
-    visible: boolean;
-    isExpanded?: boolean;
-    parentPath?: string;
-}
+```bash
+npm install        # or npm ci
+npm run compile    # tsc -p ./
+npm run lint       # eslint src --ext .ts
+npm test           # compile + node test/*.test.js
 ```
 
-## AI Integration Points
-
-### 1. OpenAI API Integration
-
-The extension includes built-in OpenAI API integration for processing JSONL data:
-
-```typescript
-private async askAI(question: string, model: string = 'gpt-4.1-mini') {
-    // Processes each row with field reference syntax
-    // {{fieldname.subname[0]}} gets replaced with actual values
-}
-```
-
-**Field Reference Syntax**:
-- `{{name}}` - Reference top-level fields
-- `{{address.city}}` - Reference nested fields  
-- `{{hobbies[0]}}` - Reference array elements
-
-### 2. AI Response Storage
-AI responses are stored in the `_aiResponse` field of each JSON row and displayed in a dedicated column.
-
-## Agent Integration Patterns
-
-### 1. Direct Extension Modification
-
-Agents can modify the extension source code to add new features:
-
-#### Adding New AI Providers
-```typescript
-// In jsonlViewerProvider.ts
-private async askClaude(question: string, model: string) {
-    // Add Anthropic Claude integration
-}
-
-private async askGemini(question: string, model: string) {
-    // Add Google Gemini integration
-}
-```
-
-#### Custom Data Processing
-```typescript
-private async processWithCustomAgent(data: JsonRow[], prompt: string) {
-    // Send data to custom AI agent endpoint
-    // Process responses and update rows
-}
-```
-
-### 2. Webview Message Extension
-
-The webview communicates with the extension via message passing. Agents can extend this:
-
-```typescript
-// Add new message types
-case 'customAgentRequest':
-    await this.handleCustomAgentRequest(message);
-    break;
-```
-
-### 3. External Agent Integration
-
-#### HTTP API Integration
-```typescript
-private async callExternalAgent(endpoint: string, data: any) {
-    const response = await axios.post(endpoint, {
-        data: data,
-        prompt: this.currentPrompt
-    });
-    return response.data;
-}
-```
-
-#### WebSocket Integration
-```typescript
-private setupWebSocketAgent() {
-    const ws = new WebSocket('ws://agent-server:8080');
-    ws.onmessage = (event) => {
-        const response = JSON.parse(event.data);
-        this.updateRowsWithAgentResponse(response);
-    };
-}
-```
-
-## Extension Points for Agents
-
-### 1. Custom Column Processors
-
-```typescript
-interface CustomColumnProcessor {
-    name: string;
-    process(value: any): string;
-}
-
-private customProcessors: CustomColumnProcessor[] = [
-    {
-        name: 'sentiment',
-        process: (value) => this.analyzeSentiment(value)
-    }
-];
-```
-
-### 2. Data Validation Agents
-
-```typescript
-interface ValidationAgent {
-    validate(row: JsonRow): ValidationResult;
-}
-
-private validationAgents: ValidationAgent[] = [
-    {
-        validate: (row) => this.validateSchema(row)
-    }
-];
-```
-
-### 3. Export Format Extensions
-
-```typescript
-private async exportToCustomFormat(format: string) {
-    switch (format) {
-        case 'parquet':
-            return this.exportToParquet();
-        case 'avro':
-            return this.exportToAvro();
-    }
-}
-```
-
-## Agent Development Guidelines
-
-### 1. Message Handling Pattern
-
-```typescript
-webviewPanel.webview.onDidReceiveMessage(async (message) => {
-    switch (message.type) {
-        case 'agentRequest':
-            await this.handleAgentRequest(message);
-            break;
-        // ... existing cases
-    }
-});
-```
-
-### 2. Data Processing Pattern
-
-```typescript
-private async processWithAgent(data: JsonRow[], agentConfig: AgentConfig) {
-    const results = await Promise.all(
-        data.map(row => this.callAgent(row, agentConfig))
-    );
-    
-    data.forEach((row, index) => {
-        row._agentResponse = results[index];
-    });
-    
-    this.updateWebview(webviewPanel);
-}
-```
-
-### 3. Error Handling
-
-```typescript
-private async safeAgentCall(agentFunction: () => Promise<any>) {
-    try {
-        return await agentFunction();
-    } catch (error) {
-        vscode.window.showErrorMessage(`Agent error: ${error.message}`);
-        console.error('Agent error:', error);
-    }
-}
-```
-
-## Configuration for Agents
-
-### 1. Settings Extension
-
-```typescript
-// In package.json
-"contributes": {
-    "configuration": {
-        "properties": {
-            "jsonl-gazelle.agentEndpoints": {
-                "type": "array",
-                "default": [],
-                "description": "Custom agent endpoints"
-            },
-            "jsonl-gazelle.agentTimeout": {
-                "type": "number",
-                "default": 30000,
-                "description": "Agent request timeout in milliseconds"
-            }
-        }
-    }
-}
-```
-
-### 2. Agent Registry
-
-```typescript
-interface AgentRegistry {
-    [agentName: string]: {
-        endpoint: string;
-        models: string[];
-        capabilities: string[];
-    };
-}
-```
-
-## Use Cases for AI Agents
-
-### 1. Data Analysis Agents
-- **Sentiment Analysis**: Analyze text fields for sentiment
-- **Classification**: Categorize rows based on content
-- **Anomaly Detection**: Identify unusual patterns in data
-
-### 2. Data Transformation Agents
-- **Schema Mapping**: Convert between different data schemas
-- **Data Cleaning**: Standardize and clean data fields
-- **Enrichment**: Add additional data from external sources
-
-### 3. Quality Assurance Agents
-- **Validation**: Ensure data meets specific criteria
-- **Completeness Check**: Verify required fields are present
-- **Consistency Check**: Ensure data consistency across rows
-
-### 4. Export/Import Agents
-- **Format Conversion**: Convert to different data formats
-- **API Integration**: Push data to external APIs
-- **Database Sync**: Synchronize with databases
-
-## Example Agent Implementation
-
-### Basic Agent Integration
-
-```typescript
-class CustomAgent {
-    constructor(private provider: JsonlViewerProvider) {}
-    
-    async processRows(rows: JsonRow[], prompt: string): Promise<void> {
-        for (const row of rows) {
-            try {
-                const response = await this.callAgentAPI(row, prompt);
-                row._customAgentResponse = response;
-            } catch (error) {
-                row._customAgentError = error.message;
-            }
-        }
-        
-        this.provider.updateWebview();
-    }
-    
-    private async callAgentAPI(row: JsonRow, prompt: string): Promise<string> {
-        const response = await axios.post('http://agent-server:8080/process', {
-            data: row,
-            prompt: prompt
-        });
-        return response.data.result;
-    }
-}
-```
-
-### Advanced Agent with Streaming
-
-```typescript
-class StreamingAgent {
-    async processRowsStreaming(rows: JsonRow[], prompt: string): Promise<void> {
-        const stream = await this.createStream(prompt);
-        
-        stream.on('data', (chunk) => {
-            const { rowIndex, response } = JSON.parse(chunk);
-            rows[rowIndex]._streamingResponse = response;
-            this.provider.updateWebview();
-        });
-        
-        stream.on('end', () => {
-            console.log('Streaming complete');
-        });
-    }
-}
-```
-
-## Testing Agent Integration
-
-### 1. Unit Tests
-
-```typescript
-describe('Agent Integration', () => {
-    it('should process rows with custom agent', async () => {
-        const provider = new JsonlViewerProvider(context);
-        const agent = new CustomAgent(provider);
-        
-        const testRows = [{ name: 'test', value: 123 }];
-        await agent.processRows(testRows, 'analyze this data');
-        
-        expect(testRows[0]._customAgentResponse).toBeDefined();
-    });
-});
-```
-
-### 2. Integration Tests
-
-```typescript
-describe('Agent WebSocket Integration', () => {
-    it('should handle real-time agent responses', async () => {
-        const ws = new WebSocket('ws://test-agent:8080');
-        // Test WebSocket communication
-    });
-});
-```
-
-## Security Considerations
-
-### 1. API Key Management
-- Store agent API keys securely in VS Code settings
-- Use environment variables for sensitive configuration
-- Implement key rotation mechanisms
-
-### 2. Data Privacy
-- Ensure agent endpoints are trusted
-- Implement data sanitization before sending to external agents
-- Add opt-in consent for data processing
-
-### 3. Rate Limiting
-- Implement request throttling for agent calls
-- Add circuit breakers for failing agent endpoints
-- Monitor agent usage and costs
-
-## Performance Optimization
-
-### 1. Batch Processing
-```typescript
-private async processBatch(rows: JsonRow[], batchSize: number = 10) {
-    for (let i = 0; i < rows.length; i += batchSize) {
-        const batch = rows.slice(i, i + batchSize);
-        await this.processBatchWithAgent(batch);
-    }
-}
-```
-
-### 2. Caching
-```typescript
-private agentResponseCache = new Map<string, any>();
-
-private async getCachedResponse(key: string, agentCall: () => Promise<any>) {
-    if (this.agentResponseCache.has(key)) {
-        return this.agentResponseCache.get(key);
-    }
-    
-    const response = await agentCall();
-    this.agentResponseCache.set(key, response);
-    return response;
-}
-```
-
-## Future Extensions
-
-### 1. Multi-Agent Orchestration
-- Chain multiple agents for complex processing
-- Implement agent selection based on data characteristics
-- Add agent performance monitoring
-
-### 2. Real-time Collaboration
-- Share agent results across team members
-- Implement collaborative agent configuration
-- Add agent result versioning
-
-### 3. Advanced Analytics
-- Track agent performance metrics
-- Implement A/B testing for different agents
-- Add cost analysis for agent usage
-
-## Conclusion
-
-JSONL Gazelle provides a robust foundation for AI agent integration through its flexible architecture, comprehensive data handling, and extensible webview interface. Agents can be integrated at multiple levels, from simple API calls to complex streaming and real-time processing scenarios.
-
-The extension's built-in AI integration serves as a template for more sophisticated agent implementations, while the message-passing architecture allows for seamless extension without modifying core functionality.
-
-For more information about extending JSONL Gazelle with custom agents, refer to the main [README.md](README.md) and explore the source code in the `src/` directory.
+Launch the extension with F5 in VS Code (Extension Development Host). CI runs compile + lint + test on every PR via `.github/workflows/ci.yml`.
+
+## Data Flow
+
+1. `resolveCustomTextEditor()` sets up the webview, message listener, and an `onDidChangeTextDocument` subscription.
+2. `loadJsonlFile(document)` splits the document text into lines and parses each with `JSON.parse`:
+   - Files with more lines than `jsonl-gazelle.performance.chunkedLoadingThreshold` (default 1000) load progressively in the background (`loadRemainingChunks`).
+   - Files with more rows than `jsonl-gazelle.performance.maxMemoryRows` (default 50000) switch to memory-optimized mode.
+3. `updateWebview(panel)` posts a single message `{ type: 'update', data: { rows, rowIndices, allRows, columns, parsedLines, rawContent, prettyContent, prettyLineMapping, errorCount, loadingProgress } }`.
+4. The webview rebuilds the table header and re-renders the body **from scratch on every update**, chunked 200 rows at a time as the user scrolls. Any webview-side UI state (e.g. the selected row) must be kept in a JS variable and re-applied during render — see `selectedRowActualIndex` in `scripts.ts` for the pattern.
+
+## Message Protocol
+
+Communication is `webview.postMessage` / `vscode.postMessage` with a `type` field.
+
+**Webview → extension** (handled in the `onDidReceiveMessage` switch in `jsonlViewerProvider.ts`):
+
+`search`, `removeColumn`, `updateCell`, `expandColumn`, `collapseColumn`, `openUrl`, `documentChanged`, `rawContentChanged`, `rawContentSave`, `prettyContentChanged`, `prettyContentSave`, `forceSave`, `unstringifyColumn`, `deleteRow`, `insertRow`, `copyRow`, `duplicateRow`, `pasteRow`, `validateClipboard`, `reorderColumns`, `reorderRows`, `toggleColumnVisibility`, `addColumn`, `addAIColumn`, `getSettings`, `getRecentEnumValues`, `checkAPIKey`, `showAPIKeyWarning`, `saveSettings`, `resetSettings`, `generateAIRows`, `requestColumnSuggestions`, `refresh`, `setFollowMode`
+
+**Extension → webview**:
+
+`update` (the main data push), `clipboardValidationResult`, `settingsLoaded`, `settingsSaved`, `recentEnumValuesLoaded`, `apiKeyCheckResult`, `columnSuggestions`
+
+## Editing & Save Path
+
+All writes go through `vscode.workspace.applyEdit()` with a full-document replace, wrapped in an `isUpdating` guard flag so the `onDidChangeTextDocument` handler doesn't reload the file for self-inflicted edits. Cell edits are debounced (~300 ms) via `pendingSaveTimeout`. The guard is time-boxed with `setTimeout` resets — **any new write path must set `isUpdating` the same way**, or edits will trigger spurious full reloads.
+
+## Refresh & Follow Mode
+
+- The `refresh` message (toolbar button, Ctrl/Cmd+R, F5, or the `jsonl-gazelle.refresh` command) reverts the document from disk (`workbench.action.files.revert`) and reloads. If the document has unsaved changes, the user is asked to confirm first.
+- `setFollowMode` (tail -f style) creates a `FileSystemWatcher` on the file while enabled; disk changes revert the (non-dirty) document, which flows through the normal reload path, and the webview pins the table scroll to the bottom after each update. The watcher is disposed on toggle-off, panel dispose, and editor switch.
+
+## AI Integration (as it actually exists)
+
+- **Provider**: OpenAI only. `fetch` calls to `https://api.openai.com/v1/chat/completions` run in the **extension host**, not the webview.
+- **API key**: `context.secrets` under `openaiApiKey`. **Model**: `context.globalState` under `openaiModel` (default `gpt-5.4-mini`). Both are managed through the in-app settings modal (gear icon), *not* VS Code settings.
+- **Prompt templates** support these placeholders (resolved per row in `jsonlViewerProvider.ts`):
+  - `{{row}}` — the entire row as JSON
+  - `{{row.fieldname}}`, `{{row.fieldname[0]}}` — nested field / array element by path
+  - `{{row_number}}` — 1-based row number
+  - `{{rows_before}}` / `{{rows_after}}` — counts around the current row
+  - `{{context_rows}}` / `{{row_count}}` — used by AI row generation
+- **Features**: fill a new column with AI output per row (`addAIColumn`), generate new rows from context (`generateAIRows`), and AI-suggested column definitions (`requestColumnSuggestions`).
+
+There are no other providers (no Anthropic/Gemini/local endpoints) and no WebSocket/agent-endpoint integration; adding a provider means abstracting the two `fetch` call sites in `jsonlViewerProvider.ts`.
+
+## Configuration
+
+VS Code settings (`contributes.configuration` in `package.json`):
+
+| Setting | Default | Effect |
+|---|---|---|
+| `jsonl-gazelle.largeFile.splitThresholdMB` | 100 | Size above which the split command/badge activates |
+| `jsonl-gazelle.largeFile.partSizeMB` | 50 | Max size of each split part |
+| `jsonl-gazelle.performance.chunkedLoadingThreshold` | 1000 | Line count above which files load progressively |
+| `jsonl-gazelle.performance.maxMemoryRows` | 50000 | Row count above which memory-optimized mode kicks in |
+
+The webview cannot read VS Code configuration directly — anything the webview needs must be passed through the `update` payload (or the initial HTML).
+
+## Adding a Feature — Checklist
+
+1. **Webview UI**: add markup in `template.ts`, styles in `styles.ts`, behavior in `scripts.ts`.
+2. **New message type**: post it from `scripts.ts` (`vscode.postMessage({ type: '...' })`), add a `case` in the provider's `onDidReceiveMessage` switch.
+3. **Webview state**: remember the table is fully rebuilt on every `update` — persistent UI state must live in a `scripts.ts` variable and be re-applied during render.
+4. **Document writes**: wrap in the `isUpdating` guard (see Editing & Save Path).
+5. **Commands/keybindings**: declare in `package.json` `contributes`, register in `extension.ts`.
+6. **Tests**: pure logic belongs in `src/jsonl/` where it can be tested by a plain Node script in `test/` (follow `test/rowMapping.test.js`).
+
+## Gotchas
+
+- **CSP**: the webview has a Content-Security-Policy (`template.ts`). Inline scripts require the nonce that `getHtmlForWebview()` generates; external resources are limited to `https://cdn.jsdelivr.net` (Monaco) and `img-src` to webview resource URIs. If you add external resources, extend the CSP deliberately — never add `unsafe-eval`.
+- **`retainContextWhenHidden` is on**: the webview keeps state when the tab is backgrounded.
+- **One provider instance** serves all editors; per-document state (e.g. `activeDocumentUri`, `manualColumnsPerFile`) is keyed or reset in `resolveCustomTextEditor`.
+- **Template-literal sources**: `scripts.ts`/`styles.ts`/`template.ts` are TypeScript files exporting giant strings — ESLint lints the TS wrapper, not the embedded JS/CSS. Backticks and `${}` inside them must be escaped.
+- **Search filtering** produces `filteredRows` + `filteredRowIndices`; webview row handlers must distinguish the filtered index (`dataset.index`) from the real file index (`dataset.actualIndex`).
