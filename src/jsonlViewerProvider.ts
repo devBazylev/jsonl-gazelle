@@ -6,6 +6,7 @@ import { filterRowsWithIndices } from './jsonl/rowMapping';
 import { getHtmlTemplate } from './webview/template';
 import { styles } from './webview/styles';
 import { scripts } from './webview/scripts';
+import { AIProvider, AI_PROVIDERS, AI_PROVIDER_IDS, isAIProvider, chatCompletion, fetchAvailableModels } from './aiProviders';
 
 function getNonce(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -197,7 +198,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                                 await this.handleCheckAPIKey(webviewPanel);
                                 break;
                             case 'showAPIKeyWarning':
-                                vscode.window.showWarningMessage('OpenAI API key is required for AI features. Please configure it in settings.');
+                                vscode.window.showWarningMessage(`${AI_PROVIDERS[this.getActiveProvider()].label} API key is required for AI features. Please configure it in settings.`);
+                                break;
+                            case 'fetchModels':
+                                await this.handleFetchModels(message.provider, message.apiKey, message.baseUrl, webviewPanel);
                                 break;
                             case 'saveSettings':
                                 await this.handleSaveSettings(message.settings, webviewPanel, message.openOriginalModal || false);
@@ -1600,80 +1604,60 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         return result;
     }
 
-    private async callLanguageModel(prompt: string, enumValues: string[] | null = null): Promise<string | number | boolean> {
-        const apiKey = await this.context.secrets.get('openaiApiKey');
-        if (!apiKey) {
-            throw new Error('OpenAI API key not configured. Please set it in AI Settings.');
+    private getActiveProvider(): AIProvider {
+        const stored = this.context.globalState.get<string>('aiProvider', 'openai');
+        return isAIProvider(stored) ? stored : 'openai';
+    }
+
+    private getLocalBaseUrl(): string {
+        return this.context.globalState.get<string>('localBaseUrl', AI_PROVIDERS.local.defaultBaseUrl || '');
+    }
+
+    private async getProviderConfig(): Promise<{ provider: AIProvider; apiKey: string; model: string; baseUrl?: string }> {
+        const provider = this.getActiveProvider();
+        const meta = AI_PROVIDERS[provider];
+        const apiKey = (await this.context.secrets.get(meta.keySecret) || '').trim();
+        if (!apiKey && !meta.keyOptional) {
+            throw new Error(`${meta.label} API key not configured. Please set it in AI Settings.`);
         }
+        const model = this.context.globalState.get<string>(meta.modelStateKey, meta.defaultModel);
+        if (!model) {
+            throw new Error(`No ${meta.label} model selected. Please pick one in AI Settings.`);
+        }
+        const baseUrl = meta.needsBaseUrl ? this.getLocalBaseUrl() : undefined;
+        return { provider, apiKey, model, baseUrl };
+    }
 
-        const trimmedApiKey = apiKey.trim();
-        const model = this.context.globalState.get<string>('openaiModel', 'gpt-5.4-mini');
-
-        const requestBody: any = {
-            model: model,
-            messages: [],
-            // Very high temperature for enum selections to maximize variety and use extreme values
-            temperature: enumValues && enumValues.length > 0 ? 1.8 : 0.7,
-            // High top_p for maximum diversity
-            top_p: enumValues && enumValues.length > 0 ? 1.0 : 1
-        };
+    private async callLanguageModel(prompt: string, enumValues: string[] | null = null): Promise<string | number | boolean> {
+        const { provider, apiKey, model, baseUrl } = await this.getProviderConfig();
 
         if (enumValues && enumValues.length > 0) {
             const buckets = this.getTypedEnumBuckets(enumValues);
             const valueSchema = this.buildEnumValueSchema(buckets);
 
             // Enhanced system prompt to maximize variety - use ALL enum values including extremes
-            requestBody.messages.push({
-                role: 'system',
-                content: `Analyze the input context and select a value from the allowed options. CRITICAL: You MUST use ALL available enum values with high variety - including extreme/minimum and extreme/maximum values. Do NOT always select middle values. Ensure a wide distribution across all possible enum values. Different rows should receive different enum values, even if they are similar.`
-            });
+            const system = `Analyze the input context and select a value from the allowed options. CRITICAL: You MUST use ALL available enum values with high variety - including extreme/minimum and extreme/maximum values. Do NOT always select middle values. Ensure a wide distribution across all possible enum values. Different rows should receive different enum values, even if they are similar.`;
 
-            requestBody.response_format = {
-                type: 'json_schema',
-                json_schema: {
-                    name: 'enum_response',
-                    strict: true,
-                    schema: {
-                        type: 'object',
-                        properties: {
-                            value: Object.assign({}, valueSchema, {
-                                description: `Select exactly ONE value from the allowed options. IMPORTANT: Use maximum variety - include extreme values (minimum and maximum) frequently. Do not cluster around middle values.`
-                            })
-                        },
-                        required: ['value'],
-                        additionalProperties: false
-                    }
-                }
+            const schema = {
+                type: 'object',
+                properties: {
+                    value: Object.assign({}, valueSchema, {
+                        description: `Select exactly ONE value from the allowed options. IMPORTANT: Use maximum variety - include extreme values (minimum and maximum) frequently. Do not cluster around middle values.`
+                    })
+                },
+                required: ['value'],
+                additionalProperties: false
             };
 
-            // DO NOT use seed for enum selections - this maximizes variety
-            // Each API call will get completely different randomization, ensuring extreme values are used
-        } else {
-            // For non-enum requests, add system prompt to ensure concise responses
-            requestBody.messages.push({
-                role: 'system',
-                content: `You are a data processing assistant. Respond with ONLY the requested value or result, without any explanations, prefixes, or additional text. Return only the raw data value (number, string, boolean, etc.) that should be stored in the column.`
-            });
-        }
-
-        requestBody.messages.push({ role: 'user', content: prompt });
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${trimmedApiKey}`
-            },
-            body: JSON.stringify(requestBody)
-        });
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`OpenAI API error: ${response.status} - ${error}`);
-        }
-        const data = await response.json();
-
-        if (enumValues && enumValues.length > 0) {
-            const content = data.choices[0].message.content.trim();
+            // Very high temperature (where the provider supports it) for enum
+            // selections to maximize variety and use extreme values
+            const content = (await chatCompletion(provider, apiKey, model, {
+                system,
+                prompt,
+                schema,
+                schemaName: 'enum_response',
+                temperature: 1.8
+            }, baseUrl)).trim();
 
             try {
                 const parsed = JSON.parse(content);
@@ -1687,8 +1671,14 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             }
         }
 
+        // For non-enum requests, add system prompt to ensure concise responses
+        const content = (await chatCompletion(provider, apiKey, model, {
+            system: `You are a data processing assistant. Respond with ONLY the requested value or result, without any explanations, prefixes, or additional text. Return only the raw data value (number, string, boolean, etc.) that should be stored in the column.`,
+            prompt,
+            temperature: 0.7
+        }, baseUrl)).trim();
+
         // Use parseEnumValue to automatically convert string numbers/booleans to proper types
-        const content = data.choices[0].message.content.trim();
         const parsed = this.parseEnumValue(content);
         return parsed.value;
     }
@@ -1840,18 +1830,68 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
 
     private async handleGetSettings(webviewPanel: vscode.WebviewPanel) {
         try {
-            const openaiKey = await this.context.secrets.get('openaiApiKey') || '';
-            const openaiModel = this.context.globalState.get<string>('openaiModel', 'gpt-5.4-mini');
+            const provider = this.getActiveProvider();
+            const keys: { [key: string]: string } = {};
+            const models: { [key: string]: string } = {};
+            const availableModels: { [key: string]: string[] } = {};
+            const cachedModels = this.context.globalState.get<{ [key: string]: string[] }>('aiAvailableModels', {});
+
+            for (const id of AI_PROVIDER_IDS) {
+                const meta = AI_PROVIDERS[id];
+                keys[id] = await this.context.secrets.get(meta.keySecret) || '';
+                models[id] = this.context.globalState.get<string>(meta.modelStateKey, meta.defaultModel);
+                const cached = cachedModels[id];
+                availableModels[id] = Array.isArray(cached) && cached.length > 0 ? cached : meta.fallbackModels;
+            }
 
             webviewPanel.webview.postMessage({
                 type: 'settingsLoaded',
                 settings: {
-                    openaiKey,
-                    openaiModel
+                    provider,
+                    keys,
+                    models,
+                    availableModels,
+                    localBaseUrl: this.getLocalBaseUrl()
                 }
             });
         } catch (error) {
             console.error('Error loading settings:', error);
+        }
+    }
+
+    private async handleFetchModels(provider: any, apiKey: string | undefined, baseUrl: string | undefined, webviewPanel: vscode.WebviewPanel) {
+        if (!isAIProvider(provider)) {
+            return;
+        }
+        const meta = AI_PROVIDERS[provider];
+        try {
+            const key = (apiKey || await this.context.secrets.get(meta.keySecret) || '').trim();
+            if (!key && !meta.keyOptional) {
+                throw new Error(`Enter your ${meta.label} API key first.`);
+            }
+            const models = await fetchAvailableModels(provider, key, baseUrl !== undefined ? baseUrl : (meta.needsBaseUrl ? this.getLocalBaseUrl() : undefined));
+            if (models.length === 0) {
+                throw new Error(`No chat models found for ${meta.label}.`);
+            }
+
+            // Cache the fetched list so future sessions see it without refetching
+            const cachedModels = this.context.globalState.get<{ [key: string]: string[] }>('aiAvailableModels', {});
+            cachedModels[provider] = models;
+            await this.context.globalState.update('aiAvailableModels', cachedModels);
+
+            webviewPanel.webview.postMessage({
+                type: 'modelsLoaded',
+                provider,
+                models,
+                error: null
+            });
+        } catch (error) {
+            webviewPanel.webview.postMessage({
+                type: 'modelsLoaded',
+                provider,
+                models: null,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
         }
     }
 
@@ -1903,9 +1943,11 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
 
     private async handleCheckAPIKey(webviewPanel: vscode.WebviewPanel) {
         try {
-            // Check if OpenAI API key exists
-            const openaiKey = await this.context.secrets.get('openaiApiKey');
-            const hasAPIKey = !!(openaiKey && openaiKey.trim());
+            // Check if the active provider's API key exists (key-optional
+            // providers like local servers always count as configured)
+            const meta = AI_PROVIDERS[this.getActiveProvider()];
+            const apiKey = await this.context.secrets.get(meta.keySecret);
+            const hasAPIKey = !!meta.keyOptional || !!(apiKey && apiKey.trim());
 
             webviewPanel.webview.postMessage({
                 type: 'apiKeyCheckResult',
@@ -1920,33 +1962,50 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         }
     }
 
-    private async handleSaveSettings(settings: { openaiKey?: string; openaiModel: string }, webviewPanel: vscode.WebviewPanel, openOriginalModal: boolean) {
+    private async handleSaveSettings(settings: { provider?: string; keys?: { [key: string]: string }; models?: { [key: string]: string }; localBaseUrl?: string }, webviewPanel: vscode.WebviewPanel, openOriginalModal: boolean) {
         try {
-            await this.context.globalState.update('openaiModel', settings.openaiModel);
+            if (isAIProvider(settings.provider)) {
+                await this.context.globalState.update('aiProvider', settings.provider);
+            }
 
-            // Save or delete API key based on input
-            let keySaved = false;
-            if (typeof settings.openaiKey === 'string') {
-                const trimmed = settings.openaiKey.trim();
-                if (trimmed) {
-                    await this.context.secrets.store('openaiApiKey', trimmed);
-                    keySaved = true;
-                } else {
-                    // Empty input means delete stored key
-                    await this.context.secrets.delete('openaiApiKey');
+            if (typeof settings.localBaseUrl === 'string') {
+                const baseUrl = settings.localBaseUrl.trim().replace(/\/+$/, '');
+                await this.context.globalState.update('localBaseUrl', baseUrl || AI_PROVIDERS.local.defaultBaseUrl);
+            }
+
+            for (const id of AI_PROVIDER_IDS) {
+                const meta = AI_PROVIDERS[id];
+
+                const model = settings.models?.[id];
+                if (typeof model === 'string' && model) {
+                    await this.context.globalState.update(meta.modelStateKey, model);
+                }
+
+                // Save or delete API key based on input
+                const key = settings.keys?.[id];
+                if (typeof key === 'string') {
+                    const trimmed = key.trim();
+                    if (trimmed) {
+                        await this.context.secrets.store(meta.keySecret, trimmed);
+                    } else {
+                        // Empty input means delete stored key
+                        await this.context.secrets.delete(meta.keySecret);
+                    }
                 }
             }
 
             vscode.window.showInformationMessage('AI settings saved successfully');
 
-            // If key was saved and original modal should be opened, check key and notify webview
-            if (keySaved && openOriginalModal) {
-                // Verify key is stored
-                const storedKey = await this.context.secrets.get('openaiApiKey');
-                webviewPanel.webview.postMessage({
-                    type: 'settingsSaved',
-                    hasAPIKey: !!storedKey
-                });
+            // If the original modal should be reopened, check the active provider's key and notify webview
+            if (openOriginalModal) {
+                const activeMeta = AI_PROVIDERS[this.getActiveProvider()];
+                const storedKey = await this.context.secrets.get(activeMeta.keySecret);
+                if (activeMeta.keyOptional || (storedKey && storedKey.trim())) {
+                    webviewPanel.webview.postMessage({
+                        type: 'settingsSaved',
+                        hasAPIKey: true
+                    });
+                }
             }
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to save settings: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -3043,88 +3102,50 @@ Focus on:
 
 Do not suggest columns that already exist. Return ONLY valid JSON array, no markdown formatting, no explanations.`;
 
-            // Call OpenAI with structured output
-            const apiKey = await this.context.secrets.get('openaiApiKey');
-            if (!apiKey) {
+            // Call the configured AI provider with structured output
+            let providerConfig: { provider: AIProvider; apiKey: string; model: string; baseUrl?: string };
+            try {
+                providerConfig = await this.getProviderConfig();
+            } catch (error) {
                 webviewPanel.webview.postMessage({
                     type: 'columnSuggestions',
                     suggestions: [],
-                    error: 'OpenAI API key not configured. Please set it in AI Settings.'
+                    error: error instanceof Error ? error.message : 'AI provider not configured. Please set it in AI Settings.'
                 });
                 return;
             }
 
-            const trimmedApiKey = apiKey.trim();
-            const model = this.context.globalState.get<string>('openaiModel', 'gpt-5.4-mini');
-
-            const requestBody: any = {
-                model: model,
-                messages: [
-                    {
-                        role: 'system',
-                        content: 'You are a helpful assistant that analyzes data structures and suggests useful derived columns. Always return valid JSON arrays.'
-                    },
-                    {
-                        role: 'user',
-                        content: prompt
-                    }
-                ],
+            const content = (await chatCompletion(providerConfig.provider, providerConfig.apiKey, providerConfig.model, {
+                system: 'You are a helpful assistant that analyzes data structures and suggests useful derived columns. Always return valid JSON arrays.',
+                prompt,
                 temperature: 0.7,
-                response_format: {
-                    type: 'json_schema',
-                    json_schema: {
-                        name: 'column_suggestions',
-                        strict: true,
-                        schema: {
-                            type: 'object',
-                            properties: {
-                                suggestions: {
-                                    type: 'array',
-                                    items: {
-                                        type: 'object',
-                                        properties: {
-                                            columnName: {
-                                                type: 'string',
-                                                description: 'The suggested column name'
-                                            },
-                                            prompt: {
-                                                type: 'string',
-                                                description: 'The prompt template for generating this column'
-                                            }
-                                        },
-                                        required: ['columnName', 'prompt'],
-                                        additionalProperties: false
+                schemaName: 'column_suggestions',
+                schema: {
+                    type: 'object',
+                    properties: {
+                        suggestions: {
+                            type: 'array',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    columnName: {
+                                        type: 'string',
+                                        description: 'The suggested column name'
+                                    },
+                                    prompt: {
+                                        type: 'string',
+                                        description: 'The prompt template for generating this column'
                                     }
-                                }
-                            },
-                            required: ['suggestions'],
-                            additionalProperties: false
+                                },
+                                required: ['columnName', 'prompt'],
+                                additionalProperties: false
+                            }
                         }
-                    }
+                    },
+                    required: ['suggestions'],
+                    additionalProperties: false
                 }
-            };
-
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${trimmedApiKey}`
-                },
-                body: JSON.stringify(requestBody)
-            });
-
-            if (!response.ok) {
-                const error = await response.text();
-                webviewPanel.webview.postMessage({
-                    type: 'columnSuggestions',
-                    suggestions: [],
-                    error: `OpenAI API error: ${response.status} - ${error.substring(0, 200)}`
-                });
-                return;
-            }
-
-            const data = await response.json();
-            const content = data.choices[0].message.content.trim();
+            }, providerConfig.baseUrl)).trim();
 
             try {
                 const parsed = JSON.parse(content);

@@ -1510,7 +1510,111 @@ export const scripts = `
         // Store which modal should be opened after settings are saved
         let pendingModalCallback = null;
         let pendingModalArgs = null;
-        let loadedSettingsOpenAIKey = '';
+
+        // Per-provider AI settings state
+        const AI_PROVIDER_META = {
+            openai: { label: 'OpenAI', keyLabel: 'OpenAI API Key:', placeholder: 'sk-...' },
+            anthropic: { label: 'Anthropic', keyLabel: 'Anthropic API Key:', placeholder: 'sk-ant-...' },
+            gemini: { label: 'Google Gemini', keyLabel: 'Google Gemini API Key:', placeholder: 'AIza...' },
+            local: { label: 'Local server', keyLabel: 'API Key (optional):', placeholder: 'optional - most local servers need no key', keyOptional: true, needsBaseUrl: true }
+        };
+        const settingsState = {
+            provider: 'openai',
+            keys: { openai: '', anthropic: '', gemini: '', local: '' },
+            loadedKeys: { openai: '', anthropic: '', gemini: '', local: '' },
+            models: { openai: 'gpt-5.4-mini', anthropic: 'claude-opus-4-8', gemini: 'gemini-2.5-flash', local: '' },
+            availableModels: {
+                openai: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano'],
+                anthropic: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'],
+                gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+                local: []
+            },
+            localBaseUrl: 'http://localhost:11434/v1'
+        };
+        // Providers whose model list was already auto-fetched this session
+        const autoFetchedProviders = {};
+
+        // Copy the current form inputs into settingsState for the active provider
+        function stashSettingsInputs() {
+            const p = settingsState.provider;
+            settingsState.keys[p] = document.getElementById('aiApiKey').value;
+            const modelSelect = document.getElementById('aiModelSelect');
+            if (modelSelect.value) {
+                settingsState.models[p] = modelSelect.value;
+            }
+            if (AI_PROVIDER_META[p] && AI_PROVIDER_META[p].needsBaseUrl) {
+                settingsState.localBaseUrl = document.getElementById('aiBaseUrl').value;
+            }
+        }
+
+        function renderModelOptions() {
+            const p = settingsState.provider;
+            const modelSelect = document.getElementById('aiModelSelect');
+            const models = (settingsState.availableModels[p] || []).slice();
+            const current = settingsState.models[p];
+            if (current && models.indexOf(current) === -1) {
+                models.unshift(current);
+            }
+            modelSelect.innerHTML = '';
+            models.forEach(function(m) {
+                const option = document.createElement('option');
+                option.value = m;
+                option.textContent = m;
+                modelSelect.appendChild(option);
+            });
+            if (current) {
+                modelSelect.value = current;
+            }
+        }
+
+        function renderSettingsForm() {
+            const p = settingsState.provider;
+            const meta = AI_PROVIDER_META[p] || AI_PROVIDER_META.openai;
+            document.getElementById('aiProviderSelect').value = p;
+            document.getElementById('aiApiKeyLabel').textContent = meta.keyLabel;
+            const keyInput = document.getElementById('aiApiKey');
+            keyInput.placeholder = meta.placeholder;
+            keyInput.value = settingsState.keys[p] || '';
+
+            const baseUrlRow = document.getElementById('aiBaseUrlRow');
+            if (baseUrlRow) {
+                baseUrlRow.style.display = meta.needsBaseUrl ? 'block' : 'none';
+            }
+            if (meta.needsBaseUrl) {
+                document.getElementById('aiBaseUrl').value = settingsState.localBaseUrl || '';
+            }
+
+            renderModelOptions();
+
+            // Automatically pull the latest model list once per provider when it's usable
+            const canFetch = meta.keyOptional || (settingsState.keys[p] || '').trim();
+            if (canFetch && !autoFetchedProviders[p]) {
+                autoFetchedProviders[p] = true;
+                requestModelFetch();
+            }
+        }
+
+        function requestModelFetch() {
+            stashSettingsInputs();
+            const p = settingsState.provider;
+            const meta = AI_PROVIDER_META[p] || AI_PROVIDER_META.openai;
+            const key = (settingsState.keys[p] || '').trim();
+            const status = document.getElementById('modelFetchStatus');
+            if (!key && !meta.keyOptional) {
+                if (status) {
+                    status.textContent = 'Enter an API key to fetch the latest models.';
+                }
+                return;
+            }
+            if (status) {
+                status.textContent = 'Fetching latest models...';
+            }
+            const request = { type: 'fetchModels', provider: p, apiKey: key };
+            if (meta.needsBaseUrl) {
+                request.baseUrl = settingsState.localBaseUrl;
+            }
+            vscode.postMessage(request);
+        }
 
         function openSettingsModal(showWarning = false, modalCallback = null, ...modalArgs) {
             const modal = document.getElementById('settingsModal');
@@ -1523,6 +1627,11 @@ export const scripts = `
             const warningElement = document.getElementById('apiKeyWarning');
             if (warningElement) {
                 warningElement.style.display = showWarning ? 'block' : 'none';
+            }
+
+            const statusElement = document.getElementById('modelFetchStatus');
+            if (statusElement) {
+                statusElement.textContent = '';
             }
 
             // Request current settings from backend
@@ -1577,28 +1686,39 @@ export const scripts = `
         }
 
         function saveSettings() {
-            const openaiKey = document.getElementById('openaiKey').value;
-            const openaiModel = document.getElementById('openaiModel').value;
-            const shouldUpdateOpenAIKey = openaiKey !== loadedSettingsOpenAIKey;
+            stashSettingsInputs();
 
             // Store callback and args before they're cleared
             const callback = pendingModalCallback;
             const args = pendingModalArgs;
 
+            // Only send keys that changed since they were loaded
+            const keysToSave = {};
+            Object.keys(AI_PROVIDER_META).forEach(function(p) {
+                if (settingsState.keys[p] !== settingsState.loadedKeys[p]) {
+                    keysToSave[p] = settingsState.keys[p];
+                }
+            });
+
             vscode.postMessage({
                 type: 'saveSettings',
                 settings: {
-                    openaiKey: shouldUpdateOpenAIKey ? openaiKey : undefined,
-                    openaiModel: openaiModel
+                    provider: settingsState.provider,
+                    keys: keysToSave,
+                    models: settingsState.models,
+                    localBaseUrl: settingsState.localBaseUrl
                 },
                 // Include callback info if available
                 openOriginalModal: !!callback
             });
 
+            const activeMeta = AI_PROVIDER_META[settingsState.provider] || AI_PROVIDER_META.openai;
+            const activeProviderReady = !!activeMeta.keyOptional || !!(settingsState.keys[settingsState.provider] || '').trim();
+
             closeSettingsModal();
 
-            // If there was a pending modal callback and key was provided, wait for confirmation
-            if (callback && openaiKey && openaiKey.trim()) {
+            // If there was a pending modal callback and the provider is usable, wait for confirmation
+            if (callback && activeProviderReady) {
                 // Listen for settings saved confirmation from backend
                 const settingsSavedListener = (event) => {
                     const message = event.data;
@@ -1621,6 +1741,13 @@ export const scripts = `
         }
 
         // Settings Modal event listeners
+        document.getElementById('aiProviderSelect').addEventListener('change', (e) => {
+            // The form still shows the previous provider's values - stash them first
+            stashSettingsInputs();
+            settingsState.provider = e.target.value;
+            renderSettingsForm();
+        });
+        document.getElementById('refreshModelsBtn').addEventListener('click', requestModelFetch);
         document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
         document.getElementById('settingsCloseBtn').addEventListener('click', closeSettingsModal);
         document.getElementById('settingsCancelBtn').addEventListener('click', closeSettingsModal);
@@ -3146,21 +3273,56 @@ export const scripts = `
                         pasteBelowMenuItem.classList.add('disabled');
                     }
                     break;
-                case 'settingsLoaded':
-                    const openaiKey = document.getElementById('openaiKey');
-                    const openaiModel = document.getElementById('openaiModel');
+                case 'settingsLoaded': {
                     const warningElement = document.getElementById('apiKeyWarning');
+                    const loaded = message.settings || {};
 
-                    openaiKey.value = message.settings.openaiKey || '';
-                    loadedSettingsOpenAIKey = openaiKey.value;
-                    openaiModel.value = message.settings.openaiModel || 'gpt-5.4-mini';
-                    
-                    // Update warning visibility based on whether API key exists
+                    if (loaded.provider && AI_PROVIDER_META[loaded.provider]) {
+                        settingsState.provider = loaded.provider;
+                    }
+                    Object.keys(AI_PROVIDER_META).forEach(function(p) {
+                        if (loaded.keys && typeof loaded.keys[p] === 'string') {
+                            settingsState.keys[p] = loaded.keys[p];
+                            settingsState.loadedKeys[p] = loaded.keys[p];
+                        }
+                        if (loaded.models && loaded.models[p]) {
+                            settingsState.models[p] = loaded.models[p];
+                        }
+                        if (loaded.availableModels && Array.isArray(loaded.availableModels[p]) && loaded.availableModels[p].length > 0) {
+                            settingsState.availableModels[p] = loaded.availableModels[p];
+                        }
+                    });
+                    if (typeof loaded.localBaseUrl === 'string' && loaded.localBaseUrl) {
+                        settingsState.localBaseUrl = loaded.localBaseUrl;
+                    }
+                    renderSettingsForm();
+
+                    // Update warning visibility based on whether the active provider is usable
                     if (warningElement) {
-                        const hasAPIKey = message.settings.openaiKey && message.settings.openaiKey.trim().length > 0;
+                        const activeProviderMeta = AI_PROVIDER_META[settingsState.provider] || AI_PROVIDER_META.openai;
+                        const hasAPIKey = !!activeProviderMeta.keyOptional || (settingsState.keys[settingsState.provider] || '').trim().length > 0;
                         warningElement.style.display = hasAPIKey ? 'none' : 'block';
                     }
                     break;
+                }
+                case 'modelsLoaded': {
+                    const statusElement = document.getElementById('modelFetchStatus');
+                    if (message.error) {
+                        if (statusElement) {
+                            statusElement.textContent = 'Could not fetch models: ' + message.error;
+                        }
+                    } else if (Array.isArray(message.models) && message.models.length > 0 && AI_PROVIDER_META[message.provider]) {
+                        settingsState.availableModels[message.provider] = message.models;
+                        if (message.provider === settingsState.provider) {
+                            stashSettingsInputs();
+                            renderModelOptions();
+                            if (statusElement) {
+                                statusElement.textContent = message.models.length + ' models loaded from ' + AI_PROVIDER_META[message.provider].label + '.';
+                            }
+                        }
+                    }
+                    break;
+                }
                 case 'recentEnumValuesLoaded':
                     recentEnumValues = message.recentValues || [];
                     break;
