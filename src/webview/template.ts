@@ -328,7 +328,7 @@ Available variables:
                 <div id="modelFetchStatus" style="font-size: 11px; color: #888; margin-top: 6px; min-height: 14px;"></div>
 
                 <div class="ai-info-box" style="margin-top: 12px; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; font-size: 12px; color: #888;">
-                    Used by the AI features in the column header and row right-click menus.
+                    Used by <em>Insert Column with AI</em>, <em>Suggest Column with AI</em> (right-click a column header) and <em>Insert Rows with AI</em> (right-click a row).
                 </div>
 
                 <div class="ai-info-box" style="margin-top: 12px; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; font-size: 12px; color: #888;">
