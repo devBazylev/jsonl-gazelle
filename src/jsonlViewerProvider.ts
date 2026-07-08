@@ -16,6 +16,8 @@ function getNonce(): string {
     return nonce;
 }
 
+type ColumnPreferences = { order: string[]; visibility: { [path: string]: boolean }; updatedAt?: number };
+
 export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     private static readonly viewType = 'jsonl-gazelle.jsonlViewer';
     private rows: JsonRow[] = [];
@@ -54,7 +56,11 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     private followWatcher: vscode.FileSystemWatcher | null = null; // Watches the file on disk while follow mode is on
     private followDebounce: NodeJS.Timeout | null = null;
     private manualColumnsPerFile: Map<string, ColumnInfo[]> = new Map(); // Store manual columns per file
+    private columnPreferencesPerFile: Map<string, ColumnPreferences> = new Map();
     private ratingPromptCallback: (() => Promise<void>) | null = null; // Callback for rating prompt
+    private readonly UI_PREFS_KEY = 'jsonl-gazelle.uiPreferences';
+    private readonly COLUMN_PREFS_KEY = 'jsonl-gazelle.columnPreferences';
+    private readonly MAX_COLUMN_PREF_ENTRIES = 100; // Cap stored per-file entries so global state doesn't grow unboundedly
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -172,7 +178,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                                 await this.handleReorderRows(message.fromIndex, message.toIndex, webviewPanel, document);
                                 break;
                             case 'toggleColumnVisibility':
-                                this.toggleColumnVisibility(message.columnPath);
+                                this.toggleColumnVisibility(message.columnPath, document);
                                 this.updateWebview(webviewPanel);
                                 break;
                             case 'addColumn':
@@ -210,6 +216,12 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                                 break;
                             case 'setFollowMode':
                                 this.setFollowMode(!!message.enabled, document);
+                                break;
+                            case 'setViewPreference':
+                                await this.updateViewPreference(message.viewType);
+                                break;
+                            case 'setWrapTextPreference':
+                                await this.updateWrapTextPreference(message.enabled);
                                 break;
                         }
                     } catch (error) {
@@ -418,7 +430,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             if (savedManualColumns.length > 0) {
                 this.restoreManualColumns(savedManualColumns);
             }
-            
+
+            // Re-apply persisted column order and visibility for this file
+            this.restoreColumnPreferences(fileUri);
+
             this.filteredRows = this.rows; // Point to same array for small files
             this.filteredRowIndices = this.rows.map((_, index) => index);
             this.isIndexing = false;
@@ -450,7 +465,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         if (savedManualColumns.length > 0) {
             this.restoreManualColumns(savedManualColumns);
         }
-        
+
+        // Re-apply persisted column order and visibility for this file
+        this.restoreColumnPreferences(fileUri);
+
         this.filteredRows = this.rows; // Point to same array initially
         this.filteredRowIndices = this.rows.map((_, index) => index);
         this.isIndexing = false;
@@ -898,6 +916,9 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             const fileUri = document.uri.toString();
             const manualColumns = this.columns.filter(col => col.isManuallyAdded);
             this.manualColumnsPerFile.set(fileUri, manualColumns);
+
+            // Persist the new column order for this file
+            this.updateColumnPreferencesForDocument(document);
         }
         
         // If document is provided, reorder keys in JSON and save
@@ -959,12 +980,17 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         }
     }
 
-    private toggleColumnVisibility(columnPath: string) {
+    private toggleColumnVisibility(columnPath: string, document?: vscode.TextDocument) {
         const column = this.columns.find(col => col.path === columnPath);
         if (!column) return;
 
         // Toggle the visibility
         column.visible = !column.visible;
+
+        // Persist visibility preference for this file if document is provided
+        if (document) {
+            this.updateColumnPreferencesForDocument(document);
+        }
     }
 
     private restoreManualColumns(savedColumns: ColumnInfo[]) {
@@ -989,6 +1015,92 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             // Otherwise add at the end
             this.columns.push(col);
         }
+    }
+
+    private updateColumnPreferencesForDocument(document: vscode.TextDocument) {
+        const fileUri = document.uri.toString();
+
+        const order = this.columns.map(col => col.path);
+        const visibility: { [path: string]: boolean } = {};
+
+        this.columns.forEach(col => {
+            visibility[col.path] = col.visible;
+        });
+
+        this.columnPreferencesPerFile.set(fileUri, { order, visibility });
+
+        // Persist to global state so preferences survive reloads
+        const existing = this.context.globalState.get<{ [uri: string]: ColumnPreferences }>(this.COLUMN_PREFS_KEY, {});
+
+        existing[fileUri] = { order, visibility, updatedAt: Date.now() };
+
+        // Keep only the most recently used entries
+        let toStore: { [uri: string]: ColumnPreferences } = existing;
+        const uris = Object.keys(existing);
+        if (uris.length > this.MAX_COLUMN_PREF_ENTRIES) {
+            toStore = {};
+            uris
+                .sort((a, b) => (existing[b].updatedAt || 0) - (existing[a].updatedAt || 0))
+                .slice(0, this.MAX_COLUMN_PREF_ENTRIES)
+                .forEach(uri => { toStore[uri] = existing[uri]; });
+        }
+
+        // Fire and forget; log if it fails
+        const updatePromise = this.context.globalState.update(this.COLUMN_PREFS_KEY, toStore);
+
+        updatePromise.then(undefined, (err: unknown) => {
+            console.error('Error saving column preferences:', err);
+        });
+    }
+
+    private restoreColumnPreferences(fileUri: string) {
+        // Try in-memory cache first
+        let prefs = this.columnPreferencesPerFile.get(fileUri);
+
+        if (!prefs) {
+            // Load from global state
+            const allPrefs = this.context.globalState.get<{ [uri: string]: ColumnPreferences }>(this.COLUMN_PREFS_KEY, {});
+
+            prefs = allPrefs[fileUri];
+
+            if (prefs) {
+                this.columnPreferencesPerFile.set(fileUri, prefs);
+            }
+        }
+
+        if (!prefs) {
+            return;
+        }
+
+        const { order, visibility } = prefs;
+
+        // Reorder columns based on saved order, but keep only columns that still exist
+        const columnMap = new Map<string, ColumnInfo>();
+
+        this.columns.forEach(col => columnMap.set(col.path, col));
+
+        const reordered: ColumnInfo[] = [];
+
+        order.forEach(path => {
+            const col = columnMap.get(path);
+
+            if (col) {
+                reordered.push(col);
+                columnMap.delete(path);
+            }
+        });
+
+        // Append any new columns that were not in saved order
+        columnMap.forEach(col => reordered.push(col));
+
+        this.columns = reordered;
+
+        // Apply visibility preferences where available
+        this.columns.forEach(col => {
+            if (visibility.hasOwnProperty(col.path)) {
+                col.visible = visibility[col.path];
+            }
+        });
     }
 
     private async handleAddColumn(
@@ -2067,7 +2179,19 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         try {
             // Update the raw content
             this.rawContent = newContent;
-            
+
+            // Skip the no-op edit when nothing changed, so view switches
+            // and identical round-trips don't dirty the document
+            if (newContent === document.getText()) {
+                if (isSave) {
+                    if (document.isDirty) {
+                        await document.save();
+                    }
+                    vscode.window.showInformationMessage('File saved successfully');
+                }
+                return;
+            }
+
             // Set updating flag to prevent document change handler from reloading (only for change events)
             if (!isSave) {
                 this.isUpdating = true;
@@ -2545,6 +2669,9 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             // Generate pretty-printed content with line mapping
             const prettyResult = this.convertJsonlToPrettyWithLineNumbers(this.rows);
 
+            // Load persisted UI preferences (view, wrap text)
+            const uiPrefs = this.context.globalState.get<{ lastView?: 'table' | 'json' | 'raw'; wrapText?: boolean }>(this.UI_PREFS_KEY, {});
+
             webviewPanel.webview.postMessage({
                 type: 'update',
                 data: {
@@ -2566,6 +2693,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                         progressPercent: this.totalLines > 0 ? Math.round((this.loadedLines / this.totalLines) * 100) : 100,
                         memoryOptimized: this.memoryOptimized,
                         displayedRows: this.rows.length
+                    },
+                    uiPreferences: {
+                        lastView: uiPrefs.lastView || 'table',
+                        wrapText: uiPrefs.wrapText === true
                     }
                 }
             });
@@ -2583,6 +2714,29 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         );
 
         return getHtmlTemplate(gazelleIconUri.toString(), gazelleAnimationUri.toString(), styles, scripts, webview.cspSource, getNonce());
+    }
+
+    private async updateViewPreference(viewType: 'table' | 'json' | 'raw'): Promise<void> {
+        if (viewType !== 'table' && viewType !== 'json' && viewType !== 'raw') {
+            return;
+        }
+        try {
+            const existing = this.context.globalState.get<{ lastView?: 'table' | 'json' | 'raw'; wrapText?: boolean }>(this.UI_PREFS_KEY, {});
+            existing.lastView = viewType;
+            await this.context.globalState.update(this.UI_PREFS_KEY, existing);
+        } catch (error) {
+            console.error('Error saving view preference:', error);
+        }
+    }
+
+    private async updateWrapTextPreference(enabled: boolean): Promise<void> {
+        try {
+            const existing = this.context.globalState.get<{ lastView?: 'table' | 'json' | 'raw'; wrapText?: boolean }>(this.UI_PREFS_KEY, {});
+            existing.wrapText = enabled;
+            await this.context.globalState.update(this.UI_PREFS_KEY, existing);
+        } catch (error) {
+            console.error('Error saving wrap text preference:', error);
+        }
     }
 
     
@@ -3009,6 +3163,131 @@ Do not suggest columns that already exist. Return ONLY valid JSON array, no mark
                 error: error instanceof Error ? error.message : 'Unknown error occurred'
             });
         }
+    }
+
+    public openSettings(): void {
+        if (this.currentWebviewPanel) {
+            try {
+                this.currentWebviewPanel.reveal();
+                this.currentWebviewPanel.webview.postMessage({ type: 'openSettings' });
+                return;
+            } catch (error) {
+                // Panel was disposed - fall through to the info message
+            }
+        }
+        vscode.window.showInformationMessage('Open a JSONL file with JSONL Gazelle to access its settings.');
+    }
+
+    public async exportToCsv(uri?: vscode.Uri): Promise<void> {
+        try {
+            // Resolve which JSONL/NDJSON file to export
+            let targetUri = uri;
+            if (!targetUri && vscode.window.activeTextEditor && /\.(jsonl|ndjson)$/i.test(vscode.window.activeTextEditor.document.uri.fsPath)) {
+                targetUri = vscode.window.activeTextEditor.document.uri;
+            }
+            if (!targetUri && this.activeDocumentUri) {
+                targetUri = vscode.Uri.parse(this.activeDocumentUri);
+            }
+            if (!targetUri) {
+                vscode.window.showErrorMessage('No JSONL file to export. Open a JSONL file first.');
+                return;
+            }
+
+            // Parse the full file from the document so the export is complete
+            // even while the viewer is still loading chunks or memory-optimized
+            const document = await vscode.workspace.openTextDocument(targetUri);
+            const rows: JsonRow[] = [];
+            let skippedLines = 0;
+            for (const line of document.getText().split('\n')) {
+                const trimmed = line.trim();
+                if (!trimmed) {
+                    continue;
+                }
+                try {
+                    rows.push(JSON.parse(trimmed));
+                } catch (error) {
+                    skippedLines++;
+                }
+            }
+
+            if (rows.length === 0) {
+                vscode.window.showWarningMessage('No valid JSON rows found to export.');
+                return;
+            }
+
+            // Use the viewer's column configuration when this file is open in it,
+            // otherwise auto-detect columns from the parsed rows
+            let columns: ColumnInfo[];
+            if (targetUri.toString() === this.activeDocumentUri && this.columns.length > 0) {
+                columns = this.columns.filter(col => col.visible);
+            } else {
+                columns = [];
+                const seenPaths = new Set<string>();
+                for (const row of rows) {
+                    const counts: { [key: string]: number } = {};
+                    this.countPaths(row, '', counts);
+                    for (const path of Object.keys(counts)) {
+                        if (!seenPaths.has(path)) {
+                            seenPaths.add(path);
+                            columns.push({ path, displayName: this.getDisplayName(path), visible: true });
+                        }
+                    }
+                }
+            }
+
+            if (columns.length === 0) {
+                vscode.window.showWarningMessage('No columns found to export.');
+                return;
+            }
+
+            const saveUri = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(targetUri.fsPath.replace(/\.(jsonl|ndjson)$/i, '') + '.csv'),
+                filters: { 'CSV': ['csv'] },
+                saveLabel: 'Export'
+            });
+            if (!saveUri) {
+                return; // User cancelled
+            }
+
+            const csv = this.buildCsv(rows, columns);
+            await vscode.workspace.fs.writeFile(saveUri, Buffer.from(csv, 'utf8'));
+
+            const skippedNote = skippedLines > 0 ? ` (${skippedLines} unparseable line${skippedLines === 1 ? '' : 's'} skipped)` : '';
+            const action = await vscode.window.showInformationMessage(
+                `Exported ${rows.length} row${rows.length === 1 ? '' : 's'} to ${path.basename(saveUri.fsPath)}${skippedNote}`,
+                'Open File'
+            );
+            if (action === 'Open File') {
+                await vscode.window.showTextDocument(saveUri);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to export CSV: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    private buildCsv(rows: JsonRow[], columns: ColumnInfo[]): string {
+        const header = columns.map(col => this.escapeCsvValue(col.displayName)).join(',');
+        const lines = rows.map(row =>
+            columns.map(col => this.escapeCsvValue(this.formatCsvValue(utils.getNestedValue(row, col.path)))).join(',')
+        );
+        return [header, ...lines].join('\r\n') + '\r\n';
+    }
+
+    private formatCsvValue(value: any): string {
+        if (value === null || value === undefined) {
+            return '';
+        }
+        if (typeof value === 'object') {
+            return JSON.stringify(value);
+        }
+        return String(value);
+    }
+
+    private escapeCsvValue(value: string): string {
+        if (/[",\r\n]/.test(value)) {
+            return '"' + value.replace(/"/g, '""') + '"';
+        }
+        return value;
     }
 
 }

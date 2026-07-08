@@ -18,10 +18,17 @@ export const scripts = `
             searchTerm: '',
             parsedLines: [],
             rawContent: '',
-            errorCount: 0
+            errorCount: 0,
+            uiPreferences: {
+                lastView: 'table',
+                wrapText: false
+            }
         };
         
         let contextMenuColumn = null;
+        let uiPreferencesApplied = false;
+        let prettyEditorModified = false; // Whether the user edited in pretty print view
+        let rawEditorModified = false; // Whether the user edited in raw view
         let contextMenuRow = null;
         let currentView = 'table';
         let isResizing = false;
@@ -745,7 +752,9 @@ export const scripts = `
         });
         
         // Wrap Text Toggle
-        document.getElementById('wrapTextCheckbox').addEventListener('change', (e) => {
+        const wrapTextCheckbox = document.getElementById('wrapTextCheckbox');
+
+        wrapTextCheckbox.addEventListener('change', (e) => {
             const table = document.getElementById('dataTable');
             const colgroup = document.getElementById('tableColgroup');
             const thead = table.querySelector('thead tr');
@@ -783,6 +792,12 @@ export const scripts = `
                 // Note: We intentionally do NOT remove table-layout or col widths
                 // so the column sizes remain stable
             }
+
+            // Persist wrap text preference globally
+            vscode.postMessage({
+                type: 'setWrapTextPreference',
+                enabled: e.target.checked
+            });
         });
         
         function openColumnManager() {
@@ -2090,6 +2105,16 @@ export const scripts = `
                 document.getElementById('dataTable').style.display = 'table';
             }
             
+            // Restore the last used view once, on the first update after load.
+            // Later updates (cell edits, chunked loading) must not override in-session choices.
+            if (data.uiPreferences && !uiPreferencesApplied) {
+                const desiredView = data.uiPreferences.lastView || 'table';
+
+                if (desiredView !== currentView) {
+                    switchView(desiredView, false);
+                }
+            }
+
             // Update search inputs
             
             // Update error count
@@ -2100,7 +2125,7 @@ export const scripts = `
                 // Default to raw view if there are errors, but not while following a
                 // live-appended file (a mid-write partial last line parses as an error)
                 if (currentView === 'table' && !followMode) {
-                    switchView('raw');
+                    switchView('raw', false);
                 }
             } else {
                 errorCountElement.style.display = 'none';
@@ -2111,6 +2136,31 @@ export const scripts = `
             renderTableChunk(true);
             if (followMode) {
                 requestAnimationFrame(followScrollToBottom);
+            }
+
+            // Restore wrap text once, now that the table header exists
+            if (data.uiPreferences && !uiPreferencesApplied) {
+                uiPreferencesApplied = true;
+
+                const wrapCheckbox = document.getElementById('wrapTextCheckbox');
+                const desiredWrap = !!data.uiPreferences.wrapText;
+
+                if (wrapCheckbox && wrapCheckbox.checked !== desiredWrap) {
+                    wrapCheckbox.checked = desiredWrap;
+
+                    if (currentView === 'table') {
+                        // Go through the checkbox's change handler so the
+                        // width-freezing logic sees the visible table
+                        wrapCheckbox.dispatchEvent(new Event('change'));
+                    } else {
+                        // Table is hidden, so widths can't be measured; just
+                        // toggle the class and let auto layout apply on switch
+                        const table = document.getElementById('dataTable');
+                        if (table) {
+                            table.classList.toggle('text-wrap', desiredWrap);
+                        }
+                    }
+                }
             }
 
             // Reset JSON rendering state when data updates
@@ -3114,6 +3164,9 @@ export const scripts = `
                 case 'recentEnumValuesLoaded':
                     recentEnumValues = message.recentValues || [];
                     break;
+                case 'openSettings':
+                    openSettingsModal();
+                    break;
                 case 'columnSuggestions':
                     handleAISuggestions(message.suggestions, message.error);
                     break;
@@ -3150,7 +3203,9 @@ export const scripts = `
         }, 5000);
         
         // View control functions
-        function switchView(viewType) {
+        // persistPreference is false for programmatic switches (preference restore,
+        // error fallback) so they don't overwrite the user's saved choice
+        function switchView(viewType, persistPreference = true) {
             // Don't switch if already on the same view
             if (currentView === viewType) {
                 return;
@@ -3164,8 +3219,9 @@ export const scripts = `
                 closeFindReplaceBar();
             }
             
-            // Flush pending edits when switching away from pretty print view (without saving)
-            if (currentView === 'json' && viewType !== 'json' && prettyEditor) {
+            // Flush pending edits when switching away from pretty print view (without saving).
+            // Only if the user actually edited, so merely visiting the view never dirties the document.
+            if (currentView === 'json' && viewType !== 'json' && prettyEditor && prettyEditorModified) {
                 clearTimeout(window.prettyEditTimeout);
                 vscode.postMessage({
                     type: 'prettyContentChanged',
@@ -3173,17 +3229,14 @@ export const scripts = `
                 });
             }
 
-            // Update data model when switching away from raw view (without saving)
-            if (currentView === 'raw' && viewType !== 'raw') {
-                // Get current content from Monaco editor and update data model without saving
-                const rawEditor = document.getElementById('rawEditor');
-                if (rawEditor && rawEditor.editor) {
-                    const currentContent = rawEditor.editor.getValue();
-                    vscode.postMessage({
-                        type: 'rawContentChanged',
-                        newContent: currentContent
-                    });
-                }
+            // Update data model when switching away from raw view (without saving),
+            // only if the user actually edited
+            if (currentView === 'raw' && viewType !== 'raw' && rawEditor && rawEditorModified) {
+                clearTimeout(window.rawEditTimeout);
+                vscode.postMessage({
+                    type: 'rawContentChanged',
+                    newContent: rawEditor.getValue()
+                });
             }
             
             // Save current scroll position
@@ -3193,6 +3246,14 @@ export const scripts = `
             }
             
             currentView = viewType;
+
+            // Persist view preference globally
+            if (persistPreference) {
+                vscode.postMessage({
+                    type: 'setViewPreference',
+                    viewType: viewType
+                });
+            }
             
             // Show animated gazelle during view switch
             const logo = document.getElementById('logo');
@@ -3368,8 +3429,12 @@ export const scripts = `
                     monaco.editor.setModelMarkers(model, 'json', []);
                 }
 
+                // Editor was recreated with fresh content; no user edits yet
+                prettyEditorModified = false;
+
                 // Add change listener with debounce
                 prettyEditor.onDidChangeModelContent(() => {
+                    prettyEditorModified = true;
                     clearTimeout(window.prettyEditTimeout);
                     window.prettyEditTimeout = setTimeout(() => {
                         vscode.postMessage({
@@ -3482,8 +3547,12 @@ export const scripts = `
                     monaco.editor.setModelMarkers(model, 'json', []);
                 }
                 
+                // Editor was recreated with fresh content; no user edits yet
+                rawEditorModified = false;
+
                 // Handle content changes
                 rawEditor.onDidChangeModelContent(() => {
+                    rawEditorModified = true;
                     clearTimeout(window.rawEditTimeout);
                     window.rawEditTimeout = setTimeout(() => {
                         vscode.postMessage({

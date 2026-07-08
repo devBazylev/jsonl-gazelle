@@ -75,6 +75,20 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(openLargeFileCommand);
 
+    // Register command for exporting JSONL to CSV
+    const exportCSVCommand = vscode.commands.registerCommand('jsonl-gazelle.exportCSV', async (uri?: vscode.Uri) => {
+        await provider.exportToCsv(uri);
+    });
+
+    context.subscriptions.push(exportCSVCommand);
+
+    // Register command for opening the settings modal in the active viewer
+    const openSettingsCommand = vscode.commands.registerCommand('jsonl-gazelle.openSettings', () => {
+        provider.openSettings();
+    });
+
+    context.subscriptions.push(openSettingsCommand);
+
     // Register file decoration provider for large files
     const fileDecorationProvider = new LargeFileDecorationProvider();
     context.subscriptions.push(vscode.window.registerFileDecorationProvider(fileDecorationProvider));
