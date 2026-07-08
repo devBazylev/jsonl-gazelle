@@ -69,7 +69,7 @@
       },
       {
         "command": "jsonl-gazelle.exportCSV",
-        "title": "JSONL Gazelle: Export to CSV"
+        "title": "JSONL Gazelle: Export to CSV..."
       },
       {
         "command": "jsonl-gazelle.openLargeFile",
@@ -84,14 +84,12 @@
       },
       {
         "command": "jsonl-gazelle.diffWithHead",
-        "title": "Diff with Git HEAD",
-        "category": "JSONL Gazelle",
+        "title": "JSONL Gazelle: Diff with Git HEAD",
         "icon": "$(git-compare)"
       },
       {
         "command": "jsonl-gazelle.compareFiles",
-        "title": "Compare with JSONL File...",
-        "category": "JSONL Gazelle"
+        "title": "JSONL Gazelle: Compare with JSONL File..."
       }
     ],
     "keybindings": [
