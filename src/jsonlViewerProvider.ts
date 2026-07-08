@@ -7,6 +7,15 @@ import { getHtmlTemplate } from './webview/template';
 import { styles } from './webview/styles';
 import { scripts } from './webview/scripts';
 
+function getNonce(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let nonce = '';
+    for (let i = 0; i < 32; i++) {
+        nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return nonce;
+}
+
 export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     private static readonly viewType = 'jsonl-gazelle.jsonlViewer';
     private rows: JsonRow[] = [];
@@ -22,8 +31,16 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     // Chunked loading properties
     private readonly CHUNK_SIZE = 100; // Lines per chunk
     private readonly INITIAL_CHUNKS = 3; // Load first 3 chunks immediately
-    private readonly MAX_MEMORY_ROWS = 50000; // Maximum rows to keep in memory for very large files
-    private readonly CHUNKED_LOADING_THRESHOLD = 1000; // Only use chunked loading for files with more than 1000 lines
+
+    // Maximum rows to keep in memory for very large files (user-configurable)
+    private get MAX_MEMORY_ROWS(): number {
+        return vscode.workspace.getConfiguration('jsonl-gazelle').get<number>('performance.maxMemoryRows', 50000);
+    }
+
+    // Only use chunked loading for files with more lines than this (user-configurable)
+    private get CHUNKED_LOADING_THRESHOLD(): number {
+        return vscode.workspace.getConfiguration('jsonl-gazelle').get<number>('performance.chunkedLoadingThreshold', 1000);
+    }
     private loadingChunks: boolean = false;
     private totalLines: number = 0;
     private loadedLines: number = 0;
@@ -33,6 +50,9 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     private isUpdating: boolean = false; // Flag to prevent recursive updates
     private pendingSaveTimeout: NodeJS.Timeout | null = null; // For debouncing saves
     private activeDocumentUri: string | null = null;
+    private activeDocument: vscode.TextDocument | null = null;
+    private followWatcher: vscode.FileSystemWatcher | null = null; // Watches the file on disk while follow mode is on
+    private followDebounce: NodeJS.Timeout | null = null;
     private manualColumnsPerFile: Map<string, ColumnInfo[]> = new Map(); // Store manual columns per file
     private ratingPromptCallback: (() => Promise<void>) | null = null; // Callback for rating prompt
 
@@ -61,6 +81,8 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             }
 
             this.activeDocumentUri = document.uri.toString();
+            this.activeDocument = document;
+            this.disposeFollowWatcher(); // Follow mode is per-session; the webview toggle starts off
 
             // Check and show rating prompt if needed
             if (this.ratingPromptCallback) {
@@ -183,6 +205,12 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                             case 'requestColumnSuggestions':
                                 await this.handleRequestColumnSuggestions(message.referenceColumn, webviewPanel);
                                 break;
+                            case 'refresh':
+                                await this.handleRefresh(document);
+                                break;
+                            case 'setFollowMode':
+                                this.setFollowMode(!!message.enabled, document);
+                                break;
                         }
                     } catch (error) {
                         console.error('Error handling webview message:', error);
@@ -215,6 +243,8 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
 
                 if (this.activeDocumentUri === document.uri.toString()) {
                     this.activeDocumentUri = null;
+                    this.activeDocument = null;
+                    this.disposeFollowWatcher();
                 }
             });
 
@@ -255,6 +285,87 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             } catch (postError) {
                 console.error('Error posting error message to webview:', postError);
             }
+        }
+    }
+
+    public async refreshActiveEditor(): Promise<void> {
+        if (this.activeDocument) {
+            await this.handleRefresh(this.activeDocument);
+        }
+    }
+
+    private async handleRefresh(document: vscode.TextDocument): Promise<void> {
+        if (document.isClosed) {
+            return;
+        }
+
+        if (document.isDirty) {
+            const choice = await vscode.window.showWarningMessage(
+                'Refreshing will discard unsaved changes and reload the file from disk.',
+                { modal: true },
+                'Reload'
+            );
+            if (choice !== 'Reload') {
+                return;
+            }
+        }
+
+        try {
+            // Suppress the onDidChangeTextDocument reload; we reload once, explicitly
+            this.isUpdating = true;
+            await vscode.commands.executeCommand('workbench.action.files.revert', document.uri);
+        } catch (error) {
+            console.error('Error reverting document from disk:', error);
+        } finally {
+            this.isUpdating = false;
+        }
+
+        await this.loadJsonlFile(document);
+    }
+
+    private setFollowMode(enabled: boolean, document: vscode.TextDocument): void {
+        this.disposeFollowWatcher();
+        if (!enabled || document.uri.scheme !== 'file') {
+            return;
+        }
+
+        const pattern = new vscode.RelativePattern(
+            vscode.Uri.file(path.dirname(document.uri.fsPath)),
+            path.basename(document.uri.fsPath)
+        );
+        this.followWatcher = vscode.workspace.createFileSystemWatcher(pattern);
+
+        const onDiskChange = () => {
+            if (this.followDebounce) {
+                clearTimeout(this.followDebounce);
+            }
+            this.followDebounce = setTimeout(async () => {
+                // Never revert while an internal edit is in flight or the user has unsaved changes
+                if (this.isUpdating || document.isDirty || document.isClosed) {
+                    return;
+                }
+                try {
+                    // Reverting triggers onDidChangeTextDocument, which reloads and
+                    // posts an update; the webview then scrolls to the bottom
+                    await vscode.commands.executeCommand('workbench.action.files.revert', document.uri);
+                } catch (error) {
+                    console.error('Follow-mode reload failed:', error);
+                }
+            }, 300);
+        };
+
+        this.followWatcher.onDidChange(onDiskChange);
+        this.followWatcher.onDidCreate(onDiskChange);
+    }
+
+    private disposeFollowWatcher(): void {
+        if (this.followDebounce) {
+            clearTimeout(this.followDebounce);
+            this.followDebounce = null;
+        }
+        if (this.followWatcher) {
+            this.followWatcher.dispose();
+            this.followWatcher = null;
         }
     }
 
@@ -2471,7 +2582,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             vscode.Uri.joinPath(this.context.extensionUri, 'gazelle-animation.gif')
         );
 
-        return getHtmlTemplate(gazelleIconUri.toString(), gazelleAnimationUri.toString(), styles, scripts);
+        return getHtmlTemplate(gazelleIconUri.toString(), gazelleAnimationUri.toString(), styles, scripts, webview.cspSource, getNonce());
     }
 
     
