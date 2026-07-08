@@ -30,9 +30,12 @@ npm install        # or npm ci
 npm run compile    # tsc -p ./
 npm run lint       # eslint src --ext .ts
 npm test           # compile + node test/*.test.js
+npm run bundle     # esbuild bundle of src/extension.ts -> out/extension.js (used by vsce packaging)
 ```
 
 Launch the extension with F5 in VS Code (Extension Development Host). CI runs compile + lint + test on every PR via `.github/workflows/ci.yml`.
+
+Packaging (`vsce package`) runs `vscode:prepublish`, which bundles the whole extension host into a single minified `out/extension.js` via esbuild. `.vscodeignore` excludes everything else except the icon, `gazelle.svg`, `gazelle-animation.gif`, README, LICENSE, and `package.json` — the two gazelle assets are loaded at runtime via `asWebviewUri`, so they must stay in the package. Note that `npm run bundle` overwrites the `tsc` output at `out/extension.js`; run `npm run compile` again before F5 debugging if you packaged first.
 
 ## Data Flow
 
