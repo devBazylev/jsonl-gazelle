@@ -638,7 +638,47 @@ export const styles = `
         .wrap-text-control span {
             color: var(--vscode-foreground);
         }
-        
+
+        /* Toolbar tooltips */
+        [data-tooltip] {
+            position: relative;
+        }
+
+        [data-tooltip]::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
+            color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+            border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border));
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: normal;
+            line-height: 1.4;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.1s ease 0.35s, visibility 0.1s ease 0.35s;
+            z-index: 1000;
+        }
+
+        [data-tooltip]:hover::after {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /* Right-align tooltips on controls near the right edge of the window */
+        [data-tooltip].tooltip-right::after {
+            left: auto;
+            right: 0;
+            transform: none;
+        }
+
         /* Column Manager Modal */
         .column-manager-modal {
             display: none;
