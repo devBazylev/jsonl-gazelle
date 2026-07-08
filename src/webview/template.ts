@@ -328,7 +328,7 @@ Available variables:
                 <div id="modelFetchStatus" style="font-size: 11px; color: #888; margin-top: 6px; min-height: 14px;"></div>
 
                 <div class="ai-info-box" style="margin-top: 12px; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; font-size: 12px; color: #888;">
-                    <strong>What is this for?</strong> These settings power the AI features of this extension: right-click a column header and choose <em>Insert Column with AI</em> or <em>Suggest Column with AI</em>, or right-click a row and choose <em>Insert Rows with AI</em>.
+                    Used by the AI features in the column header and row right-click menus.
                 </div>
 
                 <div class="ai-info-box" style="margin-top: 12px; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; font-size: 12px; color: #888;">
