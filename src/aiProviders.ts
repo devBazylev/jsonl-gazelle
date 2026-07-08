@@ -7,7 +7,7 @@
  *   - chatCompletion(): unified single-turn completion with optional JSON schema output
  */
 
-export type AIProvider = 'openai' | 'anthropic' | 'gemini';
+export type AIProvider = 'openai' | 'anthropic' | 'gemini' | 'local';
 
 export interface ProviderMeta {
     label: string;
@@ -16,6 +16,11 @@ export interface ProviderMeta {
     defaultModel: string;
     fallbackModels: string[]; // shown before a live model list has been fetched
     keyPlaceholder: string;
+    /** The provider works without an API key (e.g. a local server). */
+    keyOptional?: boolean;
+    /** The provider requires a configurable base URL. */
+    needsBaseUrl?: boolean;
+    defaultBaseUrl?: string;
 }
 
 export const AI_PROVIDERS: Record<AIProvider, ProviderMeta> = {
@@ -42,6 +47,17 @@ export const AI_PROVIDERS: Record<AIProvider, ProviderMeta> = {
         defaultModel: 'gemini-2.5-flash',
         fallbackModels: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
         keyPlaceholder: 'AIza...'
+    },
+    local: {
+        label: 'Local (OpenAI-compatible)',
+        keySecret: 'localApiKey',
+        modelStateKey: 'localModel',
+        defaultModel: '',
+        fallbackModels: [],
+        keyPlaceholder: 'optional - most local servers need no key',
+        keyOptional: true,
+        needsBaseUrl: true,
+        defaultBaseUrl: 'http://localhost:11434/v1'
     }
 };
 
@@ -62,11 +78,17 @@ export interface ChatRequest {
     temperature?: number;
 }
 
+/** Normalize a user-entered base URL (strip trailing slashes). */
+export function normalizeBaseUrl(baseUrl: string | undefined, provider: AIProvider): string {
+    const url = (baseUrl || '').trim().replace(/\/+$/, '');
+    return url || (AI_PROVIDERS[provider].defaultBaseUrl || '');
+}
+
 /**
  * Fetch the list of currently available chat-capable models from a provider,
  * newest first where the API exposes ordering.
  */
-export async function fetchAvailableModels(provider: AIProvider, apiKey: string): Promise<string[]> {
+export async function fetchAvailableModels(provider: AIProvider, apiKey: string, baseUrl?: string): Promise<string[]> {
     const key = apiKey.trim();
     switch (provider) {
         case 'openai':
@@ -75,13 +97,15 @@ export async function fetchAvailableModels(provider: AIProvider, apiKey: string)
             return fetchAnthropicModels(key);
         case 'gemini':
             return fetchGeminiModels(key);
+        case 'local':
+            return fetchLocalModels(key, normalizeBaseUrl(baseUrl, provider));
     }
 }
 
 /**
  * Run a single-turn chat completion and return the text content of the response.
  */
-export async function chatCompletion(provider: AIProvider, apiKey: string, model: string, request: ChatRequest): Promise<string> {
+export async function chatCompletion(provider: AIProvider, apiKey: string, model: string, request: ChatRequest, baseUrl?: string): Promise<string> {
     const key = apiKey.trim();
     switch (provider) {
         case 'openai':
@@ -90,6 +114,8 @@ export async function chatCompletion(provider: AIProvider, apiKey: string, model
             return anthropicChatCompletion(key, model, request);
         case 'gemini':
             return geminiChatCompletion(key, model, request);
+        case 'local':
+            return localChatCompletion(key, model, request, normalizeBaseUrl(baseUrl, provider));
     }
 }
 
@@ -305,4 +331,91 @@ async function geminiChatCompletion(apiKey: string, model: string, request: Chat
         throw new Error('Gemini API returned no text content');
     }
     return text;
+}
+
+// ---------------------------------------------------------------------------
+// Local (OpenAI-compatible: Ollama, LM Studio, vLLM, llama.cpp server, ...)
+// ---------------------------------------------------------------------------
+
+function localHeaders(apiKey: string): { [key: string]: string } {
+    const headers: { [key: string]: string } = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    return headers;
+}
+
+async function fetchLocalModels(apiKey: string, baseUrl: string): Promise<string[]> {
+    if (!baseUrl) {
+        throw new Error('No base URL configured for the local provider.');
+    }
+    let response: Response;
+    try {
+        response = await fetch(`${baseUrl}/models`, { headers: localHeaders(apiKey) });
+    } catch (error) {
+        throw new Error(`Could not reach local server at ${baseUrl}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+    if (!response.ok) {
+        await throwApiError('Local', response);
+    }
+    const data: any = await response.json();
+    return (data.data || [])
+        .map((m: any) => m.id)
+        .filter((id: any) => typeof id === 'string');
+}
+
+async function localChatCompletion(apiKey: string, model: string, request: ChatRequest, baseUrl: string): Promise<string> {
+    if (!baseUrl) {
+        throw new Error('No base URL configured for the local provider.');
+    }
+
+    let system = request.system || '';
+    if (request.schema) {
+        // Local servers vary widely in structured-output support, so the schema
+        // goes into the system prompt instead of response_format; callers
+        // validate the parsed JSON client-side.
+        system += `${system ? '\n\n' : ''}Your entire response must be a single JSON value that validates against this JSON Schema, with no markdown fences or commentary:\n${JSON.stringify(request.schema)}`;
+    }
+
+    const body: any = {
+        model,
+        messages: [] as any[]
+    };
+    if (system) {
+        body.messages.push({ role: 'system', content: system });
+    }
+    body.messages.push({ role: 'user', content: request.prompt });
+    if (request.temperature !== undefined) {
+        // Stay within the commonly supported [0, 2] range
+        body.temperature = Math.max(0, Math.min(2, request.temperature));
+    }
+
+    let response: Response;
+    try {
+        response = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: localHeaders(apiKey),
+            body: JSON.stringify(body)
+        });
+    } catch (error) {
+        throw new Error(`Could not reach local server at ${baseUrl}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+    if (!response.ok) {
+        await throwApiError('Local', response);
+    }
+    const data: any = await response.json();
+    let content = data.choices?.[0]?.message?.content;
+    if (typeof content !== 'string' || !content) {
+        throw new Error('Local server returned no text content');
+    }
+    if (request.schema) {
+        content = stripJsonFences(content);
+    }
+    return content;
+}
+
+/** Remove markdown code fences that smaller local models often wrap JSON in. */
+function stripJsonFences(text: string): string {
+    const match = text.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+    return match ? match[1] : text;
 }

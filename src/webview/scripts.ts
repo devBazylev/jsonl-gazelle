@@ -1480,20 +1480,23 @@ export const scripts = `
 
         // Per-provider AI settings state
         const AI_PROVIDER_META = {
-            openai: { label: 'OpenAI', placeholder: 'sk-...' },
-            anthropic: { label: 'Anthropic', placeholder: 'sk-ant-...' },
-            gemini: { label: 'Google Gemini', placeholder: 'AIza...' }
+            openai: { label: 'OpenAI', keyLabel: 'OpenAI API Key:', placeholder: 'sk-...' },
+            anthropic: { label: 'Anthropic', keyLabel: 'Anthropic API Key:', placeholder: 'sk-ant-...' },
+            gemini: { label: 'Google Gemini', keyLabel: 'Google Gemini API Key:', placeholder: 'AIza...' },
+            local: { label: 'Local server', keyLabel: 'API Key (optional):', placeholder: 'optional - most local servers need no key', keyOptional: true, needsBaseUrl: true }
         };
         const settingsState = {
             provider: 'openai',
-            keys: { openai: '', anthropic: '', gemini: '' },
-            loadedKeys: { openai: '', anthropic: '', gemini: '' },
-            models: { openai: 'gpt-5.4-mini', anthropic: 'claude-opus-4-8', gemini: 'gemini-2.5-flash' },
+            keys: { openai: '', anthropic: '', gemini: '', local: '' },
+            loadedKeys: { openai: '', anthropic: '', gemini: '', local: '' },
+            models: { openai: 'gpt-5.4-mini', anthropic: 'claude-opus-4-8', gemini: 'gemini-2.5-flash', local: '' },
             availableModels: {
                 openai: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano'],
                 anthropic: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'],
-                gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']
-            }
+                gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+                local: []
+            },
+            localBaseUrl: 'http://localhost:11434/v1'
         };
         // Providers whose model list was already auto-fetched this session
         const autoFetchedProviders = {};
@@ -1505,6 +1508,9 @@ export const scripts = `
             const modelSelect = document.getElementById('aiModelSelect');
             if (modelSelect.value) {
                 settingsState.models[p] = modelSelect.value;
+            }
+            if (AI_PROVIDER_META[p] && AI_PROVIDER_META[p].needsBaseUrl) {
+                settingsState.localBaseUrl = document.getElementById('aiBaseUrl').value;
             }
         }
 
@@ -1532,14 +1538,24 @@ export const scripts = `
             const p = settingsState.provider;
             const meta = AI_PROVIDER_META[p] || AI_PROVIDER_META.openai;
             document.getElementById('aiProviderSelect').value = p;
-            document.getElementById('aiApiKeyLabel').textContent = meta.label + ' API Key:';
+            document.getElementById('aiApiKeyLabel').textContent = meta.keyLabel;
             const keyInput = document.getElementById('aiApiKey');
             keyInput.placeholder = meta.placeholder;
             keyInput.value = settingsState.keys[p] || '';
+
+            const baseUrlRow = document.getElementById('aiBaseUrlRow');
+            if (baseUrlRow) {
+                baseUrlRow.style.display = meta.needsBaseUrl ? 'block' : 'none';
+            }
+            if (meta.needsBaseUrl) {
+                document.getElementById('aiBaseUrl').value = settingsState.localBaseUrl || '';
+            }
+
             renderModelOptions();
 
-            // Automatically pull the latest model list once per provider when a key exists
-            if ((settingsState.keys[p] || '').trim() && !autoFetchedProviders[p]) {
+            // Automatically pull the latest model list once per provider when it's usable
+            const canFetch = meta.keyOptional || (settingsState.keys[p] || '').trim();
+            if (canFetch && !autoFetchedProviders[p]) {
                 autoFetchedProviders[p] = true;
                 requestModelFetch();
             }
@@ -1548,9 +1564,10 @@ export const scripts = `
         function requestModelFetch() {
             stashSettingsInputs();
             const p = settingsState.provider;
+            const meta = AI_PROVIDER_META[p] || AI_PROVIDER_META.openai;
             const key = (settingsState.keys[p] || '').trim();
             const status = document.getElementById('modelFetchStatus');
-            if (!key) {
+            if (!key && !meta.keyOptional) {
                 if (status) {
                     status.textContent = 'Enter an API key to fetch the latest models.';
                 }
@@ -1559,7 +1576,11 @@ export const scripts = `
             if (status) {
                 status.textContent = 'Fetching latest models...';
             }
-            vscode.postMessage({ type: 'fetchModels', provider: p, apiKey: key });
+            const request = { type: 'fetchModels', provider: p, apiKey: key };
+            if (meta.needsBaseUrl) {
+                request.baseUrl = settingsState.localBaseUrl;
+            }
+            vscode.postMessage(request);
         }
 
         function openSettingsModal(showWarning = false, modalCallback = null, ...modalArgs) {
@@ -1651,18 +1672,20 @@ export const scripts = `
                 settings: {
                     provider: settingsState.provider,
                     keys: keysToSave,
-                    models: settingsState.models
+                    models: settingsState.models,
+                    localBaseUrl: settingsState.localBaseUrl
                 },
                 // Include callback info if available
                 openOriginalModal: !!callback
             });
 
-            const activeProviderKey = (settingsState.keys[settingsState.provider] || '').trim();
+            const activeMeta = AI_PROVIDER_META[settingsState.provider] || AI_PROVIDER_META.openai;
+            const activeProviderReady = !!activeMeta.keyOptional || !!(settingsState.keys[settingsState.provider] || '').trim();
 
             closeSettingsModal();
 
-            // If there was a pending modal callback and key was provided, wait for confirmation
-            if (callback && activeProviderKey) {
+            // If there was a pending modal callback and the provider is usable, wait for confirmation
+            if (callback && activeProviderReady) {
                 // Listen for settings saved confirmation from backend
                 const settingsSavedListener = (event) => {
                     const message = event.data;
@@ -3204,11 +3227,15 @@ export const scripts = `
                             settingsState.availableModels[p] = loaded.availableModels[p];
                         }
                     });
+                    if (typeof loaded.localBaseUrl === 'string' && loaded.localBaseUrl) {
+                        settingsState.localBaseUrl = loaded.localBaseUrl;
+                    }
                     renderSettingsForm();
 
-                    // Update warning visibility based on whether the active provider has a key
+                    // Update warning visibility based on whether the active provider is usable
                     if (warningElement) {
-                        const hasAPIKey = (settingsState.keys[settingsState.provider] || '').trim().length > 0;
+                        const activeProviderMeta = AI_PROVIDER_META[settingsState.provider] || AI_PROVIDER_META.openai;
+                        const hasAPIKey = !!activeProviderMeta.keyOptional || (settingsState.keys[settingsState.provider] || '').trim().length > 0;
                         warningElement.style.display = hasAPIKey ? 'none' : 'block';
                     }
                     break;

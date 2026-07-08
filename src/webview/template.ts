@@ -299,7 +299,14 @@ Available variables:
                             <option value="openai">OpenAI</option>
                             <option value="anthropic">Anthropic</option>
                             <option value="gemini">Google Gemini</option>
+                            <option value="local">Local (OpenAI-compatible)</option>
                         </select>
+
+                        <div id="aiBaseUrlRow" style="display: none;">
+                            <label for="aiBaseUrl" style="display: block; margin-bottom: 8px; font-weight: 500;">Base URL:</label>
+                            <input type="text" id="aiBaseUrl" class="column-name-input" placeholder="http://localhost:11434/v1" />
+                            <div style="font-size: 11px; color: #888; margin-top: 4px; margin-bottom: 16px;">OpenAI-compatible endpoint, e.g. Ollama (http://localhost:11434/v1) or LM Studio (http://localhost:1234/v1).</div>
+                        </div>
 
                         <label for="aiApiKey" id="aiApiKeyLabel" style="display: block; margin-bottom: 8px; font-weight: 500;">OpenAI API Key:</label>
                         <input type="text" id="aiApiKey" class="column-name-input" placeholder="sk-..." />

@@ -179,7 +179,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                                 vscode.window.showWarningMessage(`${AI_PROVIDERS[this.getActiveProvider()].label} API key is required for AI features. Please configure it in settings.`);
                                 break;
                             case 'fetchModels':
-                                await this.handleFetchModels(message.provider, message.apiKey, webviewPanel);
+                                await this.handleFetchModels(message.provider, message.apiKey, message.baseUrl, webviewPanel);
                                 break;
                             case 'saveSettings':
                                 await this.handleSaveSettings(message.settings, webviewPanel, message.openOriginalModal || false);
@@ -1498,19 +1498,27 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         return isAIProvider(stored) ? stored : 'openai';
     }
 
-    private async getProviderConfig(): Promise<{ provider: AIProvider; apiKey: string; model: string }> {
+    private getLocalBaseUrl(): string {
+        return this.context.globalState.get<string>('localBaseUrl', AI_PROVIDERS.local.defaultBaseUrl || '');
+    }
+
+    private async getProviderConfig(): Promise<{ provider: AIProvider; apiKey: string; model: string; baseUrl?: string }> {
         const provider = this.getActiveProvider();
         const meta = AI_PROVIDERS[provider];
         const apiKey = (await this.context.secrets.get(meta.keySecret) || '').trim();
-        if (!apiKey) {
+        if (!apiKey && !meta.keyOptional) {
             throw new Error(`${meta.label} API key not configured. Please set it in AI Settings.`);
         }
         const model = this.context.globalState.get<string>(meta.modelStateKey, meta.defaultModel);
-        return { provider, apiKey, model };
+        if (!model) {
+            throw new Error(`No ${meta.label} model selected. Please pick one in AI Settings.`);
+        }
+        const baseUrl = meta.needsBaseUrl ? this.getLocalBaseUrl() : undefined;
+        return { provider, apiKey, model, baseUrl };
     }
 
     private async callLanguageModel(prompt: string, enumValues: string[] | null = null): Promise<string | number | boolean> {
-        const { provider, apiKey, model } = await this.getProviderConfig();
+        const { provider, apiKey, model, baseUrl } = await this.getProviderConfig();
 
         if (enumValues && enumValues.length > 0) {
             const buckets = this.getTypedEnumBuckets(enumValues);
@@ -1538,7 +1546,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                 schema,
                 schemaName: 'enum_response',
                 temperature: 1.8
-            })).trim();
+            }, baseUrl)).trim();
 
             try {
                 const parsed = JSON.parse(content);
@@ -1557,7 +1565,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             system: `You are a data processing assistant. Respond with ONLY the requested value or result, without any explanations, prefixes, or additional text. Return only the raw data value (number, string, boolean, etc.) that should be stored in the column.`,
             prompt,
             temperature: 0.7
-        })).trim();
+        }, baseUrl)).trim();
 
         // Use parseEnumValue to automatically convert string numbers/booleans to proper types
         const parsed = this.parseEnumValue(content);
@@ -1731,7 +1739,8 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                     provider,
                     keys,
                     models,
-                    availableModels
+                    availableModels,
+                    localBaseUrl: this.getLocalBaseUrl()
                 }
             });
         } catch (error) {
@@ -1739,17 +1748,17 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         }
     }
 
-    private async handleFetchModels(provider: any, apiKey: string | undefined, webviewPanel: vscode.WebviewPanel) {
+    private async handleFetchModels(provider: any, apiKey: string | undefined, baseUrl: string | undefined, webviewPanel: vscode.WebviewPanel) {
         if (!isAIProvider(provider)) {
             return;
         }
         const meta = AI_PROVIDERS[provider];
         try {
             const key = (apiKey || await this.context.secrets.get(meta.keySecret) || '').trim();
-            if (!key) {
+            if (!key && !meta.keyOptional) {
                 throw new Error(`Enter your ${meta.label} API key first.`);
             }
-            const models = await fetchAvailableModels(provider, key);
+            const models = await fetchAvailableModels(provider, key, baseUrl !== undefined ? baseUrl : (meta.needsBaseUrl ? this.getLocalBaseUrl() : undefined));
             if (models.length === 0) {
                 throw new Error(`No chat models found for ${meta.label}.`);
             }
@@ -1823,10 +1832,11 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
 
     private async handleCheckAPIKey(webviewPanel: vscode.WebviewPanel) {
         try {
-            // Check if the active provider's API key exists
+            // Check if the active provider's API key exists (key-optional
+            // providers like local servers always count as configured)
             const meta = AI_PROVIDERS[this.getActiveProvider()];
             const apiKey = await this.context.secrets.get(meta.keySecret);
-            const hasAPIKey = !!(apiKey && apiKey.trim());
+            const hasAPIKey = !!meta.keyOptional || !!(apiKey && apiKey.trim());
 
             webviewPanel.webview.postMessage({
                 type: 'apiKeyCheckResult',
@@ -1841,10 +1851,15 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         }
     }
 
-    private async handleSaveSettings(settings: { provider?: string; keys?: { [key: string]: string }; models?: { [key: string]: string } }, webviewPanel: vscode.WebviewPanel, openOriginalModal: boolean) {
+    private async handleSaveSettings(settings: { provider?: string; keys?: { [key: string]: string }; models?: { [key: string]: string }; localBaseUrl?: string }, webviewPanel: vscode.WebviewPanel, openOriginalModal: boolean) {
         try {
             if (isAIProvider(settings.provider)) {
                 await this.context.globalState.update('aiProvider', settings.provider);
+            }
+
+            if (typeof settings.localBaseUrl === 'string') {
+                const baseUrl = settings.localBaseUrl.trim().replace(/\/+$/, '');
+                await this.context.globalState.update('localBaseUrl', baseUrl || AI_PROVIDERS.local.defaultBaseUrl);
             }
 
             for (const id of AI_PROVIDER_IDS) {
@@ -1874,7 +1889,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             if (openOriginalModal) {
                 const activeMeta = AI_PROVIDERS[this.getActiveProvider()];
                 const storedKey = await this.context.secrets.get(activeMeta.keySecret);
-                if (storedKey && storedKey.trim()) {
+                if (activeMeta.keyOptional || (storedKey && storedKey.trim())) {
                     webviewPanel.webview.postMessage({
                         type: 'settingsSaved',
                         hasAPIKey: true
@@ -2977,7 +2992,7 @@ Focus on:
 Do not suggest columns that already exist. Return ONLY valid JSON array, no markdown formatting, no explanations.`;
 
             // Call the configured AI provider with structured output
-            let providerConfig: { provider: AIProvider; apiKey: string; model: string };
+            let providerConfig: { provider: AIProvider; apiKey: string; model: string; baseUrl?: string };
             try {
                 providerConfig = await this.getProviderConfig();
             } catch (error) {
@@ -3019,7 +3034,7 @@ Do not suggest columns that already exist. Return ONLY valid JSON array, no mark
                     required: ['suggestions'],
                     additionalProperties: false
                 }
-            })).trim();
+            }, providerConfig.baseUrl)).trim();
 
             try {
                 const parsed = JSON.parse(content);
