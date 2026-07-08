@@ -1516,7 +1516,7 @@ export const scripts = `
             openai: { label: 'OpenAI', keyLabel: 'OpenAI API Key:', placeholder: 'sk-...' },
             anthropic: { label: 'Anthropic', keyLabel: 'Anthropic API Key:', placeholder: 'sk-ant-...' },
             gemini: { label: 'Google Gemini', keyLabel: 'Google Gemini API Key:', placeholder: 'AIza...' },
-            local: { label: 'Local server', keyLabel: 'API Key (optional):', placeholder: 'optional - most local servers need no key', keyOptional: true, needsBaseUrl: true }
+            local: { label: 'Local server', keyLabel: 'API Key (optional):', placeholder: 'optional - most local servers need no key', keyOptional: true, needsBaseUrl: true, noKey: true }
         };
         const settingsState = {
             provider: 'openai',
@@ -1575,6 +1575,10 @@ export const scripts = `
             const keyInput = document.getElementById('aiApiKey');
             keyInput.placeholder = meta.placeholder;
             keyInput.value = settingsState.keys[p] || '';
+            const keyRow = document.getElementById('aiApiKeyRow');
+            if (keyRow) {
+                keyRow.style.display = meta.noKey ? 'none' : 'block';
+            }
 
             const baseUrlRow = document.getElementById('aiBaseUrlRow');
             if (baseUrlRow) {
