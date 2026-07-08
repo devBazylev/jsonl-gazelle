@@ -3069,9 +3069,9 @@ Do not suggest columns that already exist. Return ONLY valid JSON array, no mark
 
     public async exportToCsv(uri?: vscode.Uri): Promise<void> {
         try {
-            // Resolve which JSONL file to export
+            // Resolve which JSONL/NDJSON file to export
             let targetUri = uri;
-            if (!targetUri && vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.uri.fsPath.toLowerCase().endsWith('.jsonl')) {
+            if (!targetUri && vscode.window.activeTextEditor && /\.(jsonl|ndjson)$/i.test(vscode.window.activeTextEditor.document.uri.fsPath)) {
                 targetUri = vscode.window.activeTextEditor.document.uri;
             }
             if (!targetUri && this.activeDocumentUri) {
@@ -3130,7 +3130,7 @@ Do not suggest columns that already exist. Return ONLY valid JSON array, no mark
             }
 
             const saveUri = await vscode.window.showSaveDialog({
-                defaultUri: vscode.Uri.file(targetUri.fsPath.replace(/\.jsonl$/i, '') + '.csv'),
+                defaultUri: vscode.Uri.file(targetUri.fsPath.replace(/\.(jsonl|ndjson)$/i, '') + '.csv'),
                 filters: { 'CSV': ['csv'] },
                 saveLabel: 'Export'
             });

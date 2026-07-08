@@ -66,8 +66,7 @@
       },
       {
         "command": "jsonl-gazelle.exportCSV",
-        "title": "Export to CSV",
-        "category": "JSONL Gazelle"
+        "title": "JSONL Gazelle: Export to CSV"
       },
       {
         "command": "jsonl-gazelle.openLargeFile",
@@ -93,7 +92,26 @@
       ],
       "explorer/context": [
         {
+          "command": "jsonl-gazelle.exportCSV",
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
+          "group": "navigation"
+        },
+        {
           "command": "jsonl-gazelle.openLargeFile",
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "jsonl-gazelle.exportCSV",
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "jsonl-gazelle.exportCSV",
           "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
           "group": "navigation"
         }
