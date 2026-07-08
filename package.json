@@ -81,6 +81,17 @@
         "command": "jsonl-gazelle.refresh",
         "title": "Refresh from Disk",
         "category": "JSONL Gazelle"
+      },
+      {
+        "command": "jsonl-gazelle.diffWithHead",
+        "title": "Diff with Git HEAD",
+        "category": "JSONL Gazelle",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "jsonl-gazelle.compareFiles",
+        "title": "Compare with JSONL File...",
+        "category": "JSONL Gazelle"
       }
     ],
     "keybindings": [
@@ -142,6 +153,14 @@
         {
           "command": "jsonl-gazelle.openLargeFile",
           "when": "resourceExtname == .jsonl || resourceExtname == .ndjson"
+        },
+        {
+          "command": "jsonl-gazelle.diffWithHead",
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson"
+        },
+        {
+          "command": "jsonl-gazelle.compareFiles",
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson"
         }
       ],
       "explorer/context": [
@@ -154,6 +173,16 @@
           "command": "jsonl-gazelle.openLargeFile",
           "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
           "group": "navigation"
+        },
+        {
+          "command": "jsonl-gazelle.diffWithHead",
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
+          "group": "3_compare"
+        },
+        {
+          "command": "jsonl-gazelle.compareFiles",
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
+          "group": "3_compare"
         }
       ],
       "editor/title/context": [
@@ -169,6 +198,20 @@
           "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
           "group": "navigation"
         }
+      ],
+      "editor/title": [
+        {
+          "command": "jsonl-gazelle.diffWithHead",
+          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
+          "group": "navigation"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "jsonl-gazelle.diffWithHead",
+          "when": "scmProvider == git && (resourceExtname == .jsonl || resourceExtname == .ndjson)",
+          "group": "navigation"
+        }
       ]
     }
   },
@@ -176,7 +219,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node test/rowMapping.test.js && node test/prettyToJsonl.test.js",
+    "test": "npm run compile && node test/rowMapping.test.js && node test/prettyToJsonl.test.js && node test/diff.test.js",
     "lint": "eslint src --ext .ts"
   },
   "devDependencies": {
