@@ -4,7 +4,7 @@
   <img src="jsonl-gazelle.png" alt="JSONL Gazelle" width="200">
 </div>
 
-Fast JSONL / NDJSON viewer / editor for VS Code with advanced features including Table View and Pretty Print view. JSONL (JSON Lines, also known as NDJSON — newline-delimited JSON) is increasingly important for machine learning datasets, log analysis, data streaming, and LLM training. Unlike regular JSON, it can be processed line-by-line making it perfect for large datasets.
+Fast JSONL viewer / editor for VS Code with advanced features including Table View and Pretty Print view. JSONL (JSON Lines, also known as NDJSON — newline-delimited JSON) is increasingly important for machine learning datasets, log analysis, data streaming, and LLM training. Unlike regular JSON, it can be processed line-by-line making it perfect for large datasets. Also works for NDJSON.
 
 ![JSONL Gazelle Screenshot - Light Theme - Table View](jsonl-gazelle-screenshot.jpg)
 
@@ -16,7 +16,7 @@ Fast JSONL / NDJSON viewer / editor for VS Code with advanced features including
 
 ## What's new
 
-- *Unreleased*: AI features now support Anthropic, Google Gemini, and local OpenAI-compatible servers (Ollama, LM Studio, vLLM, ...) in addition to OpenAI, and the model dropdown pulls the latest models live from the selected provider.
+- *v0.5.0*: Diff view; export to CSV; AI add now supports for Anthropic, Gemini, Ollama; persistent settings; various fixes
 - *v0.4.3*: Line-by-line navigation in Raw and Pretty print mode, fixed small bugs, updated models.
 - *v0.4.2*: Fixed AI settings persistence so model/system prompt changes are saved even when the API key remains unchanged.
 - *v0.4.1*: Improved editing reliability with row/insertion ordering fixes, safer autosave behavior, and less intrusive rating prompts.
