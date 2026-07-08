@@ -2068,7 +2068,19 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         try {
             // Update the raw content
             this.rawContent = newContent;
-            
+
+            // Skip the no-op edit when nothing changed, so view switches
+            // and identical round-trips don't dirty the document
+            if (newContent === document.getText()) {
+                if (isSave) {
+                    if (document.isDirty) {
+                        await document.save();
+                    }
+                    vscode.window.showInformationMessage('File saved successfully');
+                }
+                return;
+            }
+
             // Set updating flag to prevent document change handler from reloading (only for change events)
             if (!isSave) {
                 this.isUpdating = true;

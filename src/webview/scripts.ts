@@ -27,6 +27,8 @@ export const scripts = `
         
         let contextMenuColumn = null;
         let uiPreferencesApplied = false;
+        let prettyEditorModified = false; // Whether the user edited in pretty print view
+        let rawEditorModified = false; // Whether the user edited in raw view
         let contextMenuRow = null;
         let currentView = 'table';
         let isResizing = false;
@@ -3149,8 +3151,9 @@ export const scripts = `
                 closeFindReplaceBar();
             }
             
-            // Flush pending edits when switching away from pretty print view (without saving)
-            if (currentView === 'json' && viewType !== 'json' && prettyEditor) {
+            // Flush pending edits when switching away from pretty print view (without saving).
+            // Only if the user actually edited, so merely visiting the view never dirties the document.
+            if (currentView === 'json' && viewType !== 'json' && prettyEditor && prettyEditorModified) {
                 clearTimeout(window.prettyEditTimeout);
                 vscode.postMessage({
                     type: 'prettyContentChanged',
@@ -3158,17 +3161,14 @@ export const scripts = `
                 });
             }
 
-            // Update data model when switching away from raw view (without saving)
-            if (currentView === 'raw' && viewType !== 'raw') {
-                // Get current content from Monaco editor and update data model without saving
-                const rawEditor = document.getElementById('rawEditor');
-                if (rawEditor && rawEditor.editor) {
-                    const currentContent = rawEditor.editor.getValue();
-                    vscode.postMessage({
-                        type: 'rawContentChanged',
-                        newContent: currentContent
-                    });
-                }
+            // Update data model when switching away from raw view (without saving),
+            // only if the user actually edited
+            if (currentView === 'raw' && viewType !== 'raw' && rawEditor && rawEditorModified) {
+                clearTimeout(window.rawEditTimeout);
+                vscode.postMessage({
+                    type: 'rawContentChanged',
+                    newContent: rawEditor.getValue()
+                });
             }
             
             // Save current scroll position
@@ -3358,8 +3358,12 @@ export const scripts = `
                     monaco.editor.setModelMarkers(model, 'json', []);
                 }
 
+                // Editor was recreated with fresh content; no user edits yet
+                prettyEditorModified = false;
+
                 // Add change listener with debounce
                 prettyEditor.onDidChangeModelContent(() => {
+                    prettyEditorModified = true;
                     clearTimeout(window.prettyEditTimeout);
                     window.prettyEditTimeout = setTimeout(() => {
                         vscode.postMessage({
@@ -3472,8 +3476,12 @@ export const scripts = `
                     monaco.editor.setModelMarkers(model, 'json', []);
                 }
                 
+                // Editor was recreated with fresh content; no user edits yet
+                rawEditorModified = false;
+
                 // Handle content changes
                 rawEditor.onDidChangeModelContent(() => {
+                    rawEditorModified = true;
                     clearTimeout(window.rawEditTimeout);
                     window.rawEditTimeout = setTimeout(() => {
                         vscode.postMessage({
