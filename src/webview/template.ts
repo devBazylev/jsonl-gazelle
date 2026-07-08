@@ -2,14 +2,15 @@
  * Webview HTML template
  */
 
-export function getHtmlTemplate(gazelleIconUri: string, gazelleAnimationUri: string, styles: string, scripts: string): string {
+export function getHtmlTemplate(gazelleIconUri: string, gazelleAnimationUri: string, styles: string, scripts: string, cspSource: string, nonce: string): string {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; script-src 'nonce-${nonce}' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; connect-src https://cdn.jsdelivr.net; worker-src blob: data:;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JSONL Gazelle</title>
-    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
     <style>
 ${styles}
     </style>
@@ -31,6 +32,12 @@ ${styles}
                 <button data-view="raw"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg> Raw</button>
                 <div class="error-count" id="errorCount" style="display: none;"></div>
             </div>
+            <button class="column-manager-btn" id="refreshBtn" title="Refresh from disk (Ctrl+R / F5)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            </button>
+            <button class="column-manager-btn" id="followBtn" title="Follow mode: auto-reload and scroll to new rows (tail -f)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 13 12 18 17 13"></polyline><polyline points="7 6 12 11 17 6"></polyline></svg>
+            </button>
             <button class="column-manager-btn" id="findReplaceBtn" title="Find and Replace in cells (Cmd+F)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
             </button>
@@ -397,7 +404,7 @@ Available variables:
     </div>
 
 
-    <script>
+    <script nonce="${nonce}">
 ${scripts}
     </script>
 </body>

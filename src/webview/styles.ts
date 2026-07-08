@@ -123,12 +123,12 @@ export const styles = `
             padding: 8px;
             text-align: left;
             border-bottom: 1px solid var(--vscode-panel-border);
+            box-shadow: inset 0 -1px 0 var(--vscode-panel-border);
             position: sticky;
             top: 0;
             z-index: 10;
             cursor: pointer;
             user-select: none;
-            position: relative;
             min-width: 50px;
             white-space: nowrap;
             overflow: hidden;
@@ -178,6 +178,12 @@ export const styles = `
             background-color: var(--vscode-list-hoverBackground);
         }
 
+        th.row-header {
+            top: 0;
+            left: 0;
+            z-index: 15;
+        }
+
         td {
             padding: 6px 8px;
             border-bottom: 1px solid var(--vscode-panel-border);
@@ -210,6 +216,16 @@ export const styles = `
         
         tr:hover {
             background-color: var(--vscode-list-hoverBackground);
+        }
+
+        tr.selected td {
+            background-color: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+
+        tr.selected td.row-header {
+            background-color: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
         }
         
         .indexing {
@@ -583,6 +599,13 @@ export const styles = `
         
         .column-manager-btn:hover {
             background-color: var(--vscode-button-hoverBackground);
+        }
+
+        .column-manager-btn.toggled {
+            background-color: var(--vscode-inputOption-activeBackground);
+            color: var(--vscode-inputOption-activeForeground);
+            outline: 1px solid var(--vscode-inputOption-activeBorder);
+            outline-offset: -1px;
         }
         
         .column-manager-btn svg {

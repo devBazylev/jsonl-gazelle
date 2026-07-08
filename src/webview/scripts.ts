@@ -40,6 +40,8 @@ export const scripts = `
             raw: 0
         };
         let savedColumnWidths = {}; // Store column widths by column path
+        let selectedRowActualIndex = null; // Actual file index of the selected row (survives re-renders)
+        let followMode = false; // Auto-reload and scroll to bottom when the file grows (tail -f)
         const TABLE_CHUNK_SIZE = 200;
         const JSON_CHUNK_SIZE = 30;
         const tableRenderState = {
@@ -698,12 +700,43 @@ export const scripts = `
             }
         });
 
+        // Refresh shortcuts (Ctrl/Cmd+R, F5) and Escape-to-deselect.
+        // Capture phase so the shortcut wins over Monaco in the raw/pretty views.
+        document.addEventListener('keydown', (e) => {
+            const isRefreshKey = e.key === 'F5' ||
+                ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'r' || e.key === 'R'));
+            if (isRefreshKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                vscode.postMessage({ type: 'refresh' });
+                return;
+            }
+            if (e.key === 'Escape' && selectedRowActualIndex !== null && !document.querySelector('td.editing')) {
+                selectedRowActualIndex = null;
+                document.querySelectorAll('#tableBody tr.selected').forEach(r => r.classList.remove('selected'));
+            }
+        }, true);
+
         // Event listeners
         document.getElementById('logo').addEventListener('click', () => {
             vscode.postMessage({
                 type: 'openUrl',
                 url: 'https://github.com/gaborcselle/jsonl-gazelle'
             });
+        });
+
+        // Refresh and Follow buttons
+        document.getElementById('refreshBtn').addEventListener('click', () => {
+            vscode.postMessage({ type: 'refresh' });
+        });
+        document.getElementById('followBtn').addEventListener('click', () => {
+            followMode = !followMode;
+            document.getElementById('followBtn').classList.toggle('toggled', followMode);
+            vscode.postMessage({ type: 'setFollowMode', enabled: followMode });
+            if (followMode) {
+                vscode.postMessage({ type: 'refresh' });
+                followScrollToBottom();
+            }
         });
 
         // Find/Replace Button
@@ -2216,17 +2249,21 @@ export const scripts = `
             if (data.errorCount > 0) {
                 errorCountElement.textContent = data.errorCount;
                 errorCountElement.style.display = 'flex';
-                // Default to raw view if there are errors
-                if (currentView === 'table') {
+                // Default to raw view if there are errors, but not while following a
+                // live-appended file (a mid-write partial last line parses as an error)
+                if (currentView === 'table' && !followMode) {
                     switchView('raw', false);
                 }
             } else {
                 errorCountElement.style.display = 'none';
             }
-            
+
             // Build table header and defer row rendering via virtualization
             buildTableHeader(data);
             renderTableChunk(true);
+            if (followMode) {
+                requestAnimationFrame(followScrollToBottom);
+            }
 
             // Restore wrap text once, now that the table header exists
             if (data.uiPreferences && !uiPreferencesApplied) {
@@ -2544,6 +2581,18 @@ export const scripts = `
             tr.dataset.index = rowIndex.toString();
             tr.dataset.actualIndex = actualRowIndex.toString();
 
+            // Re-apply selection after re-renders (the tbody is rebuilt on every update)
+            if (selectedRowActualIndex !== null && actualRowIndex === selectedRowActualIndex) {
+                tr.classList.add('selected');
+            }
+
+            // Click to select the row so it stays visible while scrolling horizontally
+            tr.addEventListener('click', () => {
+                selectedRowActualIndex = actualRowIndex;
+                document.querySelectorAll('#tableBody tr.selected').forEach(r => r.classList.remove('selected'));
+                tr.classList.add('selected');
+            });
+
             // Add row number cell
             const rowNumCell = document.createElement('td');
             // Display sequential number (1, 2, 3...) for visual ordering
@@ -2665,6 +2714,22 @@ export const scripts = `
             if (targetScroll > maxScroll - 50) {
                 renderTableChunk();
                 requestAnimationFrame(() => ensureTableScrollCapacity(targetScroll));
+            }
+        }
+
+        function followScrollToBottom() {
+            if (!followMode || currentView !== 'table') return;
+
+            const tableContainer = document.getElementById('tableContainer');
+            if (!tableContainer) return;
+
+            // Chunked rendering grows scrollHeight lazily, so render all
+            // remaining chunks before pinning the scroll to the bottom
+            if (tableRenderState.renderedRows < tableRenderState.totalRows) {
+                renderTableChunk();
+                requestAnimationFrame(followScrollToBottom);
+            } else {
+                tableContainer.scrollTop = tableContainer.scrollHeight;
             }
         }
 
@@ -3378,6 +3443,9 @@ export const scripts = `
             const wrapTextControl = document.querySelector('.wrap-text-control');
             const findReplaceBtn = document.getElementById('findReplaceBtn');
             const settingsBtn = document.getElementById('settingsBtn');
+            const followBtn = document.getElementById('followBtn');
+            // Follow mode auto-scrolls the table view only; refresh works everywhere
+            followBtn.style.display = viewType === 'table' ? 'flex' : 'none';
 
             // Show selected view container
             switch (viewType) {
