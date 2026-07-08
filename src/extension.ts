@@ -3,6 +3,23 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { JsonlViewerProvider } from './jsonlViewerProvider';
 
+function getNonce(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let nonce = '';
+    for (let i = 0; i < 32; i++) {
+        nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return nonce;
+}
+
+function getSplitThresholdMB(): number {
+    return vscode.workspace.getConfiguration('jsonl-gazelle').get<number>('largeFile.splitThresholdMB', 100);
+}
+
+function getSplitPartSizeMB(): number {
+    return vscode.workspace.getConfiguration('jsonl-gazelle').get<number>('largeFile.partSizeMB', 50);
+}
+
 export function activate(context: vscode.ExtensionContext) {
     // Register the custom editor provider
     const provider = new JsonlViewerProvider(context);
@@ -19,7 +36,12 @@ export function activate(context: vscode.ExtensionContext) {
     const ratingManager = new RatingPromptManager(context);
     provider.setRatingPromptCallback(() => ratingManager.checkAndShowRatingPrompt());
 
-    // Register command for opening large files (>100MB)
+    // Refresh the active JSONL Gazelle editor from disk (Ctrl/Cmd+R, F5)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('jsonl-gazelle.refresh', () => provider.refreshActiveEditor())
+    );
+
+    // Register command for splitting large files
     const openLargeFileCommand = vscode.commands.registerCommand('jsonl-gazelle.openLargeFile', async (uri?: vscode.Uri) => {
         // If uri is not provided, try to get it from active editor
         if (!uri && vscode.window.activeTextEditor) {
@@ -31,14 +53,15 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
         
-        // Check file size - only allow files >100MB
+        // Check file size - only allow files above the configured threshold
         try {
             const stats = await fs.promises.stat(uri.fsPath);
             const sizeMB = stats.size / (1024 * 1024);
-            
-            if (sizeMB < 100) {
+            const thresholdMB = getSplitThresholdMB();
+
+            if (sizeMB < thresholdMB) {
                 vscode.window.showInformationMessage(
-                    `File splitting is only available for files larger than 100 MB`
+                    `File splitting is only available for files larger than ${thresholdMB} MB`
                 );
                 return;
             }
@@ -89,7 +112,7 @@ class LargeFileDecorationProvider implements vscode.FileDecorationProvider {
             const stats = await fs.promises.stat(uri.fsPath);
             const sizeMB = stats.size / (1024 * 1024);
 
-            if (sizeMB > 100) {
+            if (sizeMB > getSplitThresholdMB()) {
                 // Show notification only once per file
                 if (!this.shownNotifications.has(uri.fsPath)) {
                     this.shownNotifications.add(uri.fsPath);
@@ -106,7 +129,7 @@ class LargeFileDecorationProvider implements vscode.FileDecorationProvider {
                 
                 return {
                     badge: '⚠️',
-                    tooltip: 'File too large. Right-click and select "Split into Parts (100MB+)" to split the file'
+                    tooltip: 'File too large. Right-click and select "Split Large File into Parts" to split the file'
                 };
             }
         } catch (error) {
@@ -131,7 +154,7 @@ async function splitLargeFileDirectly(uri: vscode.Uri) {
             progress.report({ increment: 0, message: 'Starting file split...' });
             
             // Split file immediately
-            const parts = await splitLargeFile(uri.fsPath);
+            const parts = await splitLargeFile(uri.fsPath, getSplitPartSizeMB());
             
             if (parts.length > 0) {
                 const fileNames = parts.map(p => path.basename(p));
@@ -501,10 +524,12 @@ class RatingPromptManager {
     }
 
     private getRatingModalHtml(message: string): string {
+        const nonce = getNonce();
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Please rate and review JSONL Gazelle</title>
     <style>
@@ -641,7 +666,7 @@ class RatingPromptManager {
         </div>
     </div>
 
-    <script>
+    <script nonce="${nonce}">
         (function() {
             const vscode = acquireVsCodeApi();
             let handlersAttached = false;
