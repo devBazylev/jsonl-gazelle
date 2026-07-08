@@ -3054,4 +3054,129 @@ Do not suggest columns that already exist. Return ONLY valid JSON array, no mark
         }
     }
 
+    public openSettings(): void {
+        if (this.currentWebviewPanel) {
+            try {
+                this.currentWebviewPanel.reveal();
+                this.currentWebviewPanel.webview.postMessage({ type: 'openSettings' });
+                return;
+            } catch (error) {
+                // Panel was disposed - fall through to the info message
+            }
+        }
+        vscode.window.showInformationMessage('Open a JSONL file with JSONL Gazelle to access its settings.');
+    }
+
+    public async exportToCsv(uri?: vscode.Uri): Promise<void> {
+        try {
+            // Resolve which JSONL file to export
+            let targetUri = uri;
+            if (!targetUri && vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.uri.fsPath.toLowerCase().endsWith('.jsonl')) {
+                targetUri = vscode.window.activeTextEditor.document.uri;
+            }
+            if (!targetUri && this.activeDocumentUri) {
+                targetUri = vscode.Uri.parse(this.activeDocumentUri);
+            }
+            if (!targetUri) {
+                vscode.window.showErrorMessage('No JSONL file to export. Open a JSONL file first.');
+                return;
+            }
+
+            // Parse the full file from the document so the export is complete
+            // even while the viewer is still loading chunks or memory-optimized
+            const document = await vscode.workspace.openTextDocument(targetUri);
+            const rows: JsonRow[] = [];
+            let skippedLines = 0;
+            for (const line of document.getText().split('\n')) {
+                const trimmed = line.trim();
+                if (!trimmed) {
+                    continue;
+                }
+                try {
+                    rows.push(JSON.parse(trimmed));
+                } catch (error) {
+                    skippedLines++;
+                }
+            }
+
+            if (rows.length === 0) {
+                vscode.window.showWarningMessage('No valid JSON rows found to export.');
+                return;
+            }
+
+            // Use the viewer's column configuration when this file is open in it,
+            // otherwise auto-detect columns from the parsed rows
+            let columns: ColumnInfo[];
+            if (targetUri.toString() === this.activeDocumentUri && this.columns.length > 0) {
+                columns = this.columns.filter(col => col.visible);
+            } else {
+                columns = [];
+                const seenPaths = new Set<string>();
+                for (const row of rows) {
+                    const counts: { [key: string]: number } = {};
+                    this.countPaths(row, '', counts);
+                    for (const path of Object.keys(counts)) {
+                        if (!seenPaths.has(path)) {
+                            seenPaths.add(path);
+                            columns.push({ path, displayName: this.getDisplayName(path), visible: true });
+                        }
+                    }
+                }
+            }
+
+            if (columns.length === 0) {
+                vscode.window.showWarningMessage('No columns found to export.');
+                return;
+            }
+
+            const saveUri = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(targetUri.fsPath.replace(/\.jsonl$/i, '') + '.csv'),
+                filters: { 'CSV': ['csv'] },
+                saveLabel: 'Export'
+            });
+            if (!saveUri) {
+                return; // User cancelled
+            }
+
+            const csv = this.buildCsv(rows, columns);
+            await vscode.workspace.fs.writeFile(saveUri, Buffer.from(csv, 'utf8'));
+
+            const skippedNote = skippedLines > 0 ? ` (${skippedLines} unparseable line${skippedLines === 1 ? '' : 's'} skipped)` : '';
+            const action = await vscode.window.showInformationMessage(
+                `Exported ${rows.length} row${rows.length === 1 ? '' : 's'} to ${path.basename(saveUri.fsPath)}${skippedNote}`,
+                'Open File'
+            );
+            if (action === 'Open File') {
+                await vscode.window.showTextDocument(saveUri);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to export CSV: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    private buildCsv(rows: JsonRow[], columns: ColumnInfo[]): string {
+        const header = columns.map(col => this.escapeCsvValue(col.displayName)).join(',');
+        const lines = rows.map(row =>
+            columns.map(col => this.escapeCsvValue(this.formatCsvValue(utils.getNestedValue(row, col.path)))).join(',')
+        );
+        return [header, ...lines].join('\r\n') + '\r\n';
+    }
+
+    private formatCsvValue(value: any): string {
+        if (value === null || value === undefined) {
+            return '';
+        }
+        if (typeof value === 'object') {
+            return JSON.stringify(value);
+        }
+        return String(value);
+    }
+
+    private escapeCsvValue(value: string): string {
+        if (/[",\r\n]/.test(value)) {
+            return '"' + value.replace(/"/g, '""') + '"';
+        }
+        return value;
+    }
+
 }
