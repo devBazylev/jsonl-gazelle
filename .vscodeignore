@@ -1,4 +1,27 @@
-node_modules
-.vscode-test
+# Only ship the bundled extension, the icon, runtime webview assets
+# (gazelle.svg, gazelle-animation.gif), README, LICENSE, and package.json.
+
+# Sources and build intermediates (out/extension.js is the esbuild bundle)
+src/**
+out/**
+!out/extension.js
+tsconfig.json
+
+# Dev tooling, editor state, and agent scratch dirs
+.vscode/**
+.vscode-test/**
+.github/**
+.claude/**
+.eslintrc.json
+.gitignore
+node_modules/**
 *.vsix
-test-data
+AGENTS.md
+
+# Tests and fixtures
+test/**
+test-data/**
+
+# README-only images (vsce rewrites relative README links to GitHub raw URLs)
+jsonl-gazelle-screenshot*.jpg
+jsonl-gazelle.svg
