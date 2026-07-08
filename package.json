@@ -23,7 +23,10 @@
     "csv",
     "export",
     "ai",
-    "openai"
+    "openai",
+    "anthropic",
+    "claude",
+    "gemini"
   ],
   "repository": {
     "type": "git",

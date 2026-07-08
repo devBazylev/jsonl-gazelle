@@ -290,22 +290,30 @@ Available variables:
                 </div>
                 <div class="modal-body">
                     <div id="apiKeyWarning" style="display: none; margin-bottom: 16px; padding: 12px; background: rgba(255, 200, 0, 0.15); border-left: 3px solid #ffc800; border-radius: 4px; color: var(--vscode-errorForeground);">
-                        <strong style="display: block; margin-bottom: 4px;">⚠️ OpenAI API Key Required</strong>
-                        <span style="font-size: 12px;">The OpenAI API key is not set. Please enter your API key below to use AI features.</span>
+                        <strong style="display: block; margin-bottom: 4px;">⚠️ API Key Required</strong>
+                        <span style="font-size: 12px;">No API key is set for the selected provider. Please enter your API key below to use AI features.</span>
                     </div>
-                    
-                        <label for="openaiKey" style="display: block; margin-bottom: 8px; font-weight: 500;">OpenAI API Key:</label>
-                        <input type="text" id="openaiKey" class="column-name-input" placeholder="sk-..." />
 
-                        <label for="openaiModel" style="display: block; margin-top: 16px; margin-bottom: 8px; font-weight: 500;">Model:</label>
-                        <select id="openaiModel" class="settings-select" style="width: 100%; padding: 8px 12px; font-size: 13px; background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; outline: none; margin-bottom: 16px; box-sizing: border-box;">
-                            <option value="gpt-5.4-nano">gpt-5.4-nano</option>
-                            <option value="gpt-5.4-mini" selected>gpt-5.4-mini</option>
-                            <option value="gpt-5.4">gpt-5.4</option>
+                        <label for="aiProviderSelect" style="display: block; margin-bottom: 8px; font-weight: 500;">Provider:</label>
+                        <select id="aiProviderSelect" class="settings-select" style="width: 100%; padding: 8px 12px; font-size: 13px; background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; outline: none; margin-bottom: 16px; box-sizing: border-box;">
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="gemini">Google Gemini</option>
                         </select>
 
+                        <label for="aiApiKey" id="aiApiKeyLabel" style="display: block; margin-bottom: 8px; font-weight: 500;">OpenAI API Key:</label>
+                        <input type="text" id="aiApiKey" class="column-name-input" placeholder="sk-..." />
+
+                        <label for="aiModelSelect" style="display: block; margin-top: 16px; margin-bottom: 8px; font-weight: 500;">Model:</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <select id="aiModelSelect" class="settings-select" style="flex: 1; padding: 8px 12px; font-size: 13px; background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; outline: none; box-sizing: border-box;">
+                            </select>
+                            <button id="refreshModelsBtn" class="modal-button modal-button-secondary" title="Fetch the latest models from the provider" style="padding: 8px 12px; white-space: nowrap;">↻ Refresh</button>
+                        </div>
+                        <div id="modelFetchStatus" style="font-size: 11px; color: #888; margin-top: 6px; margin-bottom: 16px; min-height: 14px;"></div>
+
                         <div class="ai-info-box" style="margin-top: 12px; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; font-size: 12px; color: #888;">
-                            <strong>Note:</strong> Your API key is stored securely in VS Code's secret storage. It will never be shared or transmitted outside of API requests to OpenAI.
+                            <strong>Note:</strong> Your API keys are stored securely in VS Code's secret storage. They will never be shared or transmitted outside of API requests to the selected provider. Use ↻ Refresh to pull the latest model list from the provider.
                         </div>
                     </div>
 

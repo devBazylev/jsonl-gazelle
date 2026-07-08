@@ -16,6 +16,7 @@ Fast JSONL / NDJSON viewer / editor for VS Code with advanced features including
 
 ## What's new
 
+- *Unreleased*: AI features now support Anthropic and Google Gemini in addition to OpenAI, and the model dropdown pulls the latest models live from the selected provider.
 - *v0.4.3*: Line-by-line navigation in Raw and Pretty print mode, fixed small bugs, updated models.
 - *v0.4.2*: Fixed AI settings persistence so model/system prompt changes are saved even when the API key remains unchanged.
 - *v0.4.1*: Improved editing reliability with row/insertion ordering fixes, safer autosave behavior, and less intrusive rating prompts.
@@ -32,6 +33,7 @@ Fast JSONL / NDJSON viewer / editor for VS Code with advanced features including
 - **Column Expansion**: Click ▼ to expand objects/arrays into separate columns (e.g., `user.name`, `orders[0]`)
 - **Column Management**: Right-click context menu on table headers to add, remove, or toggle column visibility
 - **Memory Efficient**: All processing happens in-memory without creating separate files
+- **AI Features**: Generate columns and rows with AI using OpenAI, Anthropic, or Google Gemini — model lists are fetched live from each provider
 
 ## Usage
 
@@ -72,7 +74,8 @@ The generated file is automatically excluded from git via `.gitignore` to keep t
 
 ## What's next / Roadmap
 - [ ] Expand export options beyond CSV (e.g., JSON array, Parquet, or Avro) for analytics/data engineering workflows.
-- [ ] Add configurable AI provider support (Anthropic/Google Gemini/local endpoints) in addition to OpenAI.
+- [x] Add configurable AI provider support (Anthropic/Google Gemini) in addition to OpenAI.
+- [ ] Add local endpoint (e.g., Ollama / OpenAI-compatible) AI provider support.
 
 ## License
 
