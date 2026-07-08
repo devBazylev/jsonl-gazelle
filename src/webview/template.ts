@@ -290,55 +290,58 @@ Available variables:
     <!-- AI Settings Modal -->
     <div class="column-manager-modal" id="settingsModal">
         <div class="modal-content settings-modal">
-            <div style="position: relative; width: 100%; height: 100%; display: flex; flex-direction: column;">
-                <div class="modal-header">
-                    <h3>AI Settings</h3>
-                    <button class="modal-close" id="settingsCloseBtn">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div id="apiKeyWarning" style="display: none; margin-bottom: 16px; padding: 12px; background: rgba(255, 200, 0, 0.15); border-left: 3px solid #ffc800; border-radius: 4px; color: var(--vscode-errorForeground);">
-                        <strong style="display: block; margin-bottom: 4px;">⚠️ API Key Required</strong>
-                        <span style="font-size: 12px;">No API key is set for the selected provider. Please enter your API key below to use AI features.</span>
-                    </div>
-
-                        <label for="aiProviderSelect" style="display: block; margin-bottom: 8px; font-weight: 500;">Provider:</label>
-                        <select id="aiProviderSelect" class="settings-select" style="width: 100%; padding: 8px 12px; font-size: 13px; background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; outline: none; margin-bottom: 16px; box-sizing: border-box;">
-                            <option value="openai">OpenAI</option>
-                            <option value="anthropic">Anthropic</option>
-                            <option value="gemini">Google Gemini</option>
-                            <option value="local">Local (OpenAI-compatible)</option>
-                        </select>
-
-                        <div id="aiBaseUrlRow" style="display: none;">
-                            <label for="aiBaseUrl" style="display: block; margin-bottom: 8px; font-weight: 500;">Base URL:</label>
-                            <input type="text" id="aiBaseUrl" class="column-name-input" placeholder="http://localhost:11434/v1" />
-                            <div style="font-size: 11px; color: #888; margin-top: 4px; margin-bottom: 16px;">OpenAI-compatible endpoint, e.g. Ollama (http://localhost:11434/v1) or LM Studio (http://localhost:1234/v1).</div>
-                        </div>
-
-                        <label for="aiApiKey" id="aiApiKeyLabel" style="display: block; margin-bottom: 8px; font-weight: 500;">OpenAI API Key:</label>
-                        <input type="text" id="aiApiKey" class="column-name-input" placeholder="sk-..." />
-
-                        <label for="aiModelSelect" style="display: block; margin-top: 16px; margin-bottom: 8px; font-weight: 500;">Model:</label>
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                            <select id="aiModelSelect" class="settings-select" style="flex: 1; padding: 8px 12px; font-size: 13px; background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; outline: none; box-sizing: border-box;">
-                            </select>
-                            <button id="refreshModelsBtn" class="modal-button modal-button-secondary" title="Fetch the latest models from the provider" style="padding: 8px 12px; white-space: nowrap;">↻ Refresh</button>
-                        </div>
-                        <div id="modelFetchStatus" style="font-size: 11px; color: #888; margin-top: 6px; margin-bottom: 16px; min-height: 14px;"></div>
-
-                        <div class="ai-info-box" style="margin-top: 12px; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; font-size: 12px; color: #888;">
-                            <strong>Note:</strong> Your API keys are stored securely in VS Code's secret storage. They will never be shared or transmitted outside of API requests to the selected provider. Use ↻ Refresh to pull the latest model list from the provider.
-                        </div>
-                    </div>
-
-                    <div class="modal-actions" style="margin-top: 16px; margin-bottom: 16px;">
-                        <button class="modal-button modal-button-primary" id="settingsSaveBtn">Save Settings</button>
-                        <button class="modal-button modal-button-secondary" id="settingsCancelBtn" style="margin-right: 16px;">Cancel</button>
-                    </div>
-                </div>
-                <!-- Hidden reset button in bottom left corner -->
-                <div id="settingsResetBtn" style="position: absolute; bottom: 0; left: 0; width: 40px; height: 40px; background: transparent; z-index: 1000; pointer-events: auto;"></div>
+            <div class="modal-header">
+                <h3>AI Settings</h3>
+                <button class="modal-close" id="settingsCloseBtn">&times;</button>
             </div>
+            <div class="modal-body">
+                <div id="apiKeyWarning" style="display: none; margin-bottom: 16px; padding: 12px; background: rgba(255, 200, 0, 0.15); border-left: 3px solid #ffc800; border-radius: 4px; color: var(--vscode-errorForeground);">
+                    <strong style="display: block; margin-bottom: 4px;">⚠️ API Key Required</strong>
+                    <span style="font-size: 12px;">No API key is set for the selected provider. Please enter your API key below to use AI features.</span>
+                </div>
+
+                <label for="aiProviderSelect" style="display: block; margin-bottom: 8px; font-weight: 500;">Provider:</label>
+                <select id="aiProviderSelect" class="settings-select" style="width: 100%; padding: 8px 12px; font-size: 13px; background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; outline: none; margin-bottom: 16px; box-sizing: border-box;">
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="local">Local (OpenAI-compatible)</option>
+                </select>
+
+                <div id="aiBaseUrlRow" style="display: none;">
+                    <label for="aiBaseUrl" style="display: block; margin-bottom: 8px; font-weight: 500;">Base URL:</label>
+                    <input type="text" id="aiBaseUrl" class="column-name-input" placeholder="http://localhost:11434/v1" />
+                    <div style="font-size: 11px; color: #888; margin-top: 4px; margin-bottom: 16px;">OpenAI-compatible endpoint, e.g. Ollama (http://localhost:11434/v1) or LM Studio (http://localhost:1234/v1).</div>
+                </div>
+
+                <div id="aiApiKeyRow">
+                    <label for="aiApiKey" id="aiApiKeyLabel" style="display: block; margin-bottom: 8px; font-weight: 500;">OpenAI API Key:</label>
+                    <input type="text" id="aiApiKey" class="column-name-input" placeholder="sk-..." />
+                </div>
+
+                <label for="aiModelSelect" style="display: block; margin-top: 16px; margin-bottom: 8px; font-weight: 500;">Model:</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <select id="aiModelSelect" class="settings-select" style="flex: 1; padding: 8px 12px; font-size: 13px; background-color: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; outline: none; box-sizing: border-box;">
+                    </select>
+                    <button id="refreshModelsBtn" class="modal-button modal-button-secondary" title="Fetch the latest models from the provider" style="padding: 8px 12px; white-space: nowrap;">↻ Refresh</button>
+                </div>
+                <div id="modelFetchStatus" style="font-size: 11px; color: #888; margin-top: 6px; min-height: 14px;"></div>
+
+                <div class="ai-info-box" style="margin-top: 12px; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; font-size: 12px; color: #888;">
+                    <strong>What is this for?</strong> These settings power the AI features of this extension: right-click a column header and choose <em>Insert Column with AI</em> or <em>Suggest Column with AI</em>, or right-click a row and choose <em>Insert Rows with AI</em>.
+                </div>
+
+                <div class="ai-info-box" style="margin-top: 12px; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; font-size: 12px; color: #888;">
+                    <strong>Note:</strong> Your API keys are stored securely in VS Code's secret storage. They will never be shared or transmitted outside of API requests to the selected provider. Use ↻ Refresh to pull the latest model list from the provider.
+                </div>
+            </div>
+
+            <div class="modal-actions" style="padding: 16px; border-top: 1px solid var(--vscode-panel-border); margin-top: 0;">
+                <button class="modal-button modal-button-primary" id="settingsSaveBtn">Save Settings</button>
+                <button class="modal-button modal-button-secondary" id="settingsCancelBtn">Cancel</button>
+            </div>
+            <!-- Hidden reset button in bottom left corner -->
+            <div id="settingsResetBtn" style="position: absolute; bottom: 0; left: 0; width: 40px; height: 40px; background: transparent; z-index: 1000; pointer-events: auto;"></div>
         </div>
     </div>
 
