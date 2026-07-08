@@ -18,10 +18,15 @@ export const scripts = `
             searchTerm: '',
             parsedLines: [],
             rawContent: '',
-            errorCount: 0
+            errorCount: 0,
+            uiPreferences: {
+                lastView: 'table',
+                wrapText: false
+            }
         };
         
         let contextMenuColumn = null;
+        let uiPreferencesApplied = false;
         let contextMenuRow = null;
         let currentView = 'table';
         let isResizing = false;
@@ -712,7 +717,9 @@ export const scripts = `
         });
         
         // Wrap Text Toggle
-        document.getElementById('wrapTextCheckbox').addEventListener('change', (e) => {
+        const wrapTextCheckbox = document.getElementById('wrapTextCheckbox');
+
+        wrapTextCheckbox.addEventListener('change', (e) => {
             const table = document.getElementById('dataTable');
             const colgroup = document.getElementById('tableColgroup');
             const thead = table.querySelector('thead tr');
@@ -750,6 +757,12 @@ export const scripts = `
                 // Note: We intentionally do NOT remove table-layout or col widths
                 // so the column sizes remain stable
             }
+
+            // Persist wrap text preference globally
+            vscode.postMessage({
+                type: 'setWrapTextPreference',
+                enabled: e.target.checked
+            });
         });
         
         function openColumnManager() {
@@ -2057,6 +2070,16 @@ export const scripts = `
                 document.getElementById('dataTable').style.display = 'table';
             }
             
+            // Restore the last used view once, on the first update after load.
+            // Later updates (cell edits, chunked loading) must not override in-session choices.
+            if (data.uiPreferences && !uiPreferencesApplied) {
+                const desiredView = data.uiPreferences.lastView || 'table';
+
+                if (desiredView !== currentView) {
+                    switchView(desiredView, false);
+                }
+            }
+
             // Update search inputs
             
             // Update error count
@@ -2066,7 +2089,7 @@ export const scripts = `
                 errorCountElement.style.display = 'flex';
                 // Default to raw view if there are errors
                 if (currentView === 'table') {
-                    switchView('raw');
+                    switchView('raw', false);
                 }
             } else {
                 errorCountElement.style.display = 'none';
@@ -2075,6 +2098,31 @@ export const scripts = `
             // Build table header and defer row rendering via virtualization
             buildTableHeader(data);
             renderTableChunk(true);
+
+            // Restore wrap text once, now that the table header exists
+            if (data.uiPreferences && !uiPreferencesApplied) {
+                uiPreferencesApplied = true;
+
+                const wrapCheckbox = document.getElementById('wrapTextCheckbox');
+                const desiredWrap = !!data.uiPreferences.wrapText;
+
+                if (wrapCheckbox && wrapCheckbox.checked !== desiredWrap) {
+                    wrapCheckbox.checked = desiredWrap;
+
+                    if (currentView === 'table') {
+                        // Go through the checkbox's change handler so the
+                        // width-freezing logic sees the visible table
+                        wrapCheckbox.dispatchEvent(new Event('change'));
+                    } else {
+                        // Table is hidden, so widths can't be measured; just
+                        // toggle the class and let auto layout apply on switch
+                        const table = document.getElementById('dataTable');
+                        if (table) {
+                            table.classList.toggle('text-wrap', desiredWrap);
+                        }
+                    }
+                }
+            }
 
             // Reset JSON rendering state when data updates
             if (currentView === 'json') {
@@ -3085,7 +3133,9 @@ export const scripts = `
         }, 5000);
         
         // View control functions
-        function switchView(viewType) {
+        // persistPreference is false for programmatic switches (preference restore,
+        // error fallback) so they don't overwrite the user's saved choice
+        function switchView(viewType, persistPreference = true) {
             // Don't switch if already on the same view
             if (currentView === viewType) {
                 return;
@@ -3128,6 +3178,14 @@ export const scripts = `
             }
             
             currentView = viewType;
+
+            // Persist view preference globally
+            if (persistPreference) {
+                vscode.postMessage({
+                    type: 'setViewPreference',
+                    viewType: viewType
+                });
+            }
             
             // Show animated gazelle during view switch
             const logo = document.getElementById('logo');
