@@ -33,7 +33,6 @@ export const scripts = `
         let currentView = 'table';
         let isResizing = false;
         let resizeData = null;
-        let isNavigating = false; // Flag to prevent re-render during navigation
         let scrollPositions = {
             table: 0,
             json: 0,
@@ -42,6 +41,7 @@ export const scripts = `
         let savedColumnWidths = {}; // Store column widths by column path
         let selectedRowActualIndex = null; // Actual file index of the selected row (survives re-renders)
         let followMode = false; // Auto-reload and scroll to bottom when the file grows (tail -f)
+        let deferredUpdatePending = false; // An update arrived while a cell edit was in progress
         const TABLE_CHUNK_SIZE = 200;
         const JSON_CHUNK_SIZE = 30;
         const tableRenderState = {
@@ -2262,11 +2262,13 @@ export const scripts = `
                 errorCountElement.style.display = 'none';
             }
 
-            // Build table header and defer row rendering via virtualization
-            buildTableHeader(data);
-            renderTableChunk(true);
-            if (followMode) {
-                requestAnimationFrame(followScrollToBottom);
+            // Rebuild the table, unless a cell edit is in progress (rebuilding
+            // would destroy the input mid-typing - defer until the edit ends;
+            // currentData is already fresh so the deferred rebuild shows new data)
+            if (document.querySelector('#tableBody td.editing')) {
+                deferredUpdatePending = true;
+            } else {
+                rebuildTable();
             }
 
             // Restore wrap text once, now that the table header exists
@@ -2721,6 +2723,43 @@ export const scripts = `
             }
         }
 
+        // Rebuild header + body from currentData, preserving the table's scroll
+        // position (background chunk loading used to reset the view to the top)
+        function rebuildTable() {
+            const tableContainer = document.getElementById('tableContainer');
+            const prevScroll = (currentView === 'table' && !followMode && tableContainer)
+                ? tableContainer.scrollTop
+                : 0;
+            buildTableHeader(currentData);
+            renderTableChunk(true);
+            if (followMode) {
+                requestAnimationFrame(followScrollToBottom);
+            } else if (prevScroll > 0) {
+                restoreTableScroll(prevScroll);
+            }
+        }
+
+        // Render chunks until the saved scroll offset is reachable, then restore it
+        function restoreTableScroll(targetScroll) {
+            const tableContainer = document.getElementById('tableContainer');
+            if (!tableContainer) return;
+
+            if (tableRenderState.renderedRows < tableRenderState.totalRows &&
+                tableContainer.scrollHeight - tableContainer.clientHeight < targetScroll) {
+                renderTableChunk();
+                requestAnimationFrame(() => restoreTableScroll(targetScroll));
+                return;
+            }
+            tableContainer.scrollTop = targetScroll;
+        }
+
+        // Apply an update that was deferred because a cell edit was in progress
+        function flushDeferredUpdate() {
+            if (!deferredUpdatePending) return;
+            deferredUpdatePending = false;
+            rebuildTable();
+        }
+
         function followScrollToBottom() {
             if (!followMode || currentView !== 'table') return;
 
@@ -3113,7 +3152,6 @@ export const scripts = `
             scrollPositions[currentView] = tableContainer.scrollTop;
 
             // Don't trigger re-render during navigation
-            if (isNavigating) return;
 
             const nearBottom = tableContainer.scrollTop + tableContainer.clientHeight >= tableContainer.scrollHeight - 200;
             if (!nearBottom) return;
@@ -3230,6 +3268,8 @@ export const scripts = `
                 td.classList.remove('editing');
                 td.textContent = newValue;
                 td.title = newValue;
+                // Keep the raw value in sync so Find/Replace sees the edit immediately
+                td.dataset.rawValue = newValue;
                 
                 // Send update message
                 vscode.postMessage({
@@ -3238,6 +3278,8 @@ export const scripts = `
                     columnPath: columnPath,
                     value: newValue
                 });
+
+                flushDeferredUpdate();
             }
             
             // Handle cancel on escape
@@ -3245,6 +3287,8 @@ export const scripts = `
                 td.classList.remove('editing');
                 td.textContent = originalValue;
                 td.title = originalValue;
+
+                flushDeferredUpdate();
             }
             
             input.addEventListener('blur', saveEdit);
