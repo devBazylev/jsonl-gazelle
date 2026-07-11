@@ -4,3 +4,4 @@ node_modules
 test-data/large.jsonl
 screenshot-*.png
 .DS_Store
+.claude

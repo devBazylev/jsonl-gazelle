@@ -16,6 +16,7 @@ Fast JSONL viewer / editor for VS Code with advanced features including Table Vi
 
 ## What's new
 
+- *v0.5.2*: Faster loading for large files
 - *v0.5.1*: Reduced package size
 - *v0.5.0*: Diff view; export to CSV; AI add now supports for Anthropic, Gemini, Ollama; persistent settings; various fixes
 - *v0.4.3*: Line-by-line navigation in Raw and Pretty print mode, fixed small bugs, updated models.
