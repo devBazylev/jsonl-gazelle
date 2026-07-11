@@ -43,8 +43,9 @@ Packaging (`vsce package`) runs `vscode:prepublish`, which bundles the whole ext
 2. `loadJsonlFile(document)` splits the document text into lines and parses each with `JSON.parse`:
    - Files with more lines than `jsonl-gazelle.performance.chunkedLoadingThreshold` (default 1000) load progressively in the background (`loadRemainingChunks`).
    - Files with more rows than `jsonl-gazelle.performance.maxMemoryRows` (default 50000) switch to memory-optimized mode.
-3. `updateWebview(panel)` posts a single message `{ type: 'update', data: { rows, rowIndices, allRows, columns, parsedLines, rawContent, prettyContent, prettyLineMapping, errorCount, loadingProgress } }`.
-4. The webview rebuilds the table header and re-renders the body **from scratch on every update**, chunked 200 rows at a time as the user scrolls. Any webview-side UI state (e.g. the selected row) must be kept in a JS variable and re-applied during render — see `selectedRowActualIndex` in `scripts.ts` for the pattern.
+3. `updateWebview(panel)` posts a full snapshot `{ type: 'update', data: { rows, rowIndices, allRows, columns, parsedLines, rawContent, prettyContent, prettyLineMapping, errorCount, loadingProgress, appendCompatible } }`. `allRows` is omitted when it would be identical to `rows` (no active search); the webview then aliases it to `rows`.
+4. During background chunk loading (no active search), progress updates are **`appendRows` deltas** instead: only the rows/parsedLines added since the last message (`sendAppendedRows`, tracked via `lastSentRowCount` / `webviewRowsSynced`). The webview merges them into `currentData` without touching the rendered table. If a delta's `baseRowCount` doesn't match (e.g. a message was dropped while the webview was hidden), the webview replies `requestFullUpdate`. The final post-loading `update` carries `appendCompatible: true`, which lets the webview keep its DOM and scroll position.
+5. On a non-append `update` the webview rebuilds the table header and re-renders the body **from scratch**, chunked 200 rows at a time as the user scrolls, then restores the previous scroll offset (`rebuildTable` / `restoreTableScroll`). Any webview-side UI state (e.g. the selected row) must be kept in a JS variable and re-applied during render — see `selectedRowActualIndex` in `scripts.ts` for the pattern.
 
 ## Message Protocol
 
@@ -52,11 +53,11 @@ Communication is `webview.postMessage` / `vscode.postMessage` with a `type` fiel
 
 **Webview → extension** (handled in the `onDidReceiveMessage` switch in `jsonlViewerProvider.ts`):
 
-`search`, `removeColumn`, `updateCell`, `expandColumn`, `collapseColumn`, `openUrl`, `documentChanged`, `rawContentChanged`, `rawContentSave`, `prettyContentChanged`, `prettyContentSave`, `forceSave`, `unstringifyColumn`, `deleteRow`, `insertRow`, `copyRow`, `duplicateRow`, `pasteRow`, `validateClipboard`, `reorderColumns`, `reorderRows`, `toggleColumnVisibility`, `addColumn`, `addAIColumn`, `getSettings`, `getRecentEnumValues`, `checkAPIKey`, `showAPIKeyWarning`, `saveSettings`, `resetSettings`, `generateAIRows`, `requestColumnSuggestions`, `refresh`, `setFollowMode`
+`search`, `removeColumn`, `updateCell`, `expandColumn`, `collapseColumn`, `openUrl`, `documentChanged`, `rawContentChanged`, `rawContentSave`, `prettyContentChanged`, `prettyContentSave`, `forceSave`, `unstringifyColumn`, `deleteRow`, `insertRow`, `copyRow`, `duplicateRow`, `pasteRow`, `validateClipboard`, `reorderColumns`, `reorderRows`, `toggleColumnVisibility`, `addColumn`, `addAIColumn`, `getSettings`, `getRecentEnumValues`, `checkAPIKey`, `showAPIKeyWarning`, `saveSettings`, `resetSettings`, `generateAIRows`, `requestColumnSuggestions`, `refresh`, `requestFullUpdate`, `setFollowMode`, `setViewPreference`, `setWrapTextPreference`
 
 **Extension → webview**:
 
-`update` (the main data push), `clipboardValidationResult`, `settingsLoaded`, `settingsSaved`, `recentEnumValuesLoaded`, `apiKeyCheckResult`, `columnSuggestions`
+`update` (full data snapshot), `appendRows` (delta during background chunk loading), `clipboardValidationResult`, `settingsLoaded`, `settingsSaved`, `recentEnumValuesLoaded`, `apiKeyCheckResult`, `columnSuggestions`
 
 ## Editing & Save Path
 

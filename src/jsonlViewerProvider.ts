@@ -45,6 +45,12 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         return vscode.workspace.getConfiguration('jsonl-gazelle').get<number>('performance.chunkedLoadingThreshold', 1000);
     }
     private loadingChunks: boolean = false;
+    // Delta ('appendRows') bookkeeping for background chunk loading: how much of
+    // rows/parsedLines the webview already has, and whether it holds this.rows
+    // unfiltered (a prerequisite for sending append-only deltas)
+    private lastSentRowCount: number = 0;
+    private lastSentParsedLineCount: number = 0;
+    private webviewRowsSynced: boolean = false;
     private totalLines: number = 0;
     private loadedLines: number = 0;
     private pathCounts: { [key: string]: number } = {};
@@ -217,6 +223,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                                 break;
                             case 'refresh':
                                 await this.handleRefresh(document);
+                                break;
+                            case 'requestFullUpdate':
+                                // Webview detected it is out of sync with an appendRows delta
+                                this.updateWebview(webviewPanel);
                                 break;
                             case 'setFollowMode':
                                 this.setFollowMode(!!message.enabled, document);
@@ -411,6 +421,9 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             this.errorCount = 0;
             this.pathCounts = {};
             this.memoryOptimized = false;
+            this.lastSentRowCount = 0;
+            this.lastSentParsedLineCount = 0;
+            this.webviewRowsSynced = false;
             
             // Handle empty files
             if (this.totalLines === 0 || (this.totalLines === 1 && lines[0].trim() === '')) {
@@ -476,11 +489,14 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         this.filteredRows = this.rows; // Point to same array initially
         this.filteredRowIndices = this.rows.map((_, index) => index);
         this.isIndexing = false;
-        
+        // Mark background loading as active before the first update so the
+        // progress banner shows from the start
+        this.loadingChunks = this.loadedLines < this.totalLines;
+
         if (this.currentWebviewPanel) {
             this.updateWebview(this.currentWebviewPanel);
         }
-        
+
         // Continue loading remaining chunks in background
         if (this.loadedLines < this.totalLines) {
             this.loadRemainingChunks(lines);
@@ -514,25 +530,95 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             
             // Update columns progressively - only add new columns, don't re-expand
             this.addNewColumnsOnly();
-            
+
             // Update UI only every 10 chunks (much less frequent)
             if ((startIndex / this.CHUNK_SIZE) % 10 === 0 && this.currentWebviewPanel) {
-                this.filteredRows = this.searchTerm ? [...this.rows] : this.rows;
-                this.filteredRowIndices = this.rows.map((_, index) => index);
-                this.updateWebview(this.currentWebviewPanel);
+                if (this.searchTerm) {
+                    this.filteredRows = [...this.rows];
+                    this.filteredRowIndices = this.rows.map((_, index) => index);
+                    this.updateWebview(this.currentWebviewPanel);
+                } else {
+                    this.filteredRows = this.rows;
+                    this.extendIdentityRowIndices();
+                    if (this.webviewRowsSynced) {
+                        // Send only the newly parsed rows - re-serializing the
+                        // whole dataset on every progress update made loading
+                        // time quadratic in file size
+                        this.sendAppendedRows(this.currentWebviewPanel);
+                    } else {
+                        this.updateWebview(this.currentWebviewPanel);
+                    }
+                }
             }
-            
+
             // Yield only every 1000 lines to maintain responsiveness
             if (startIndex % (this.CHUNK_SIZE * 10) === 0) {
                 await new Promise(resolve => setTimeout(resolve, 10));
             }
         }
-        
+
         this.loadingChunks = false;
 
         // Final update
         if (this.currentWebviewPanel) {
-            this.updateWebview(this.currentWebviewPanel);
+            if (!this.searchTerm) {
+                this.filteredRows = this.rows;
+                this.extendIdentityRowIndices();
+            }
+            // appendCompatible: rows were only appended since the last update,
+            // so the webview may keep its table DOM and scroll position
+            this.updateWebview(this.currentWebviewPanel, { appendCompatible: true });
+        }
+    }
+
+    // During chunked loading (no search) the row mapping is the identity -
+    // extend it in place instead of rebuilding the whole array on every update
+    private extendIdentityRowIndices() {
+        const indices = this.filteredRowIndices;
+        const isIdentityPrefix = indices.length <= this.rows.length &&
+            (indices.length === 0 || indices[indices.length - 1] === indices.length - 1);
+        if (!isIdentityPrefix) {
+            this.filteredRowIndices = this.rows.map((_, index) => index);
+            return;
+        }
+        for (let i = indices.length; i < this.rows.length; i++) {
+            indices.push(i);
+        }
+    }
+
+    // Post only the rows/parsedLines added since the last webview update.
+    // Only valid while the webview holds this.rows unfiltered (webviewRowsSynced)
+    private sendAppendedRows(webviewPanel: vscode.WebviewPanel) {
+        try {
+            const message = {
+                type: 'appendRows',
+                data: {
+                    baseRowCount: this.lastSentRowCount,
+                    rows: this.rows.slice(this.lastSentRowCount),
+                    parsedLines: this.parsedLines.slice(this.lastSentParsedLineCount),
+                    columns: this.columns || [],
+                    errorCount: this.errorCount,
+                    loadingProgress: {
+                        loadedLines: this.loadedLines,
+                        totalLines: this.totalLines,
+                        loadingChunks: this.loadingChunks,
+                        progressPercent: this.totalLines > 0 ? Math.round((this.loadedLines / this.totalLines) * 100) : 100,
+                        memoryOptimized: this.memoryOptimized,
+                        displayedRows: this.rows.length
+                    }
+                }
+            };
+            this.lastSentRowCount = this.rows.length;
+            this.lastSentParsedLineCount = this.parsedLines.length;
+            Promise.resolve(webviewPanel.webview.postMessage(message)).then(delivered => {
+                if (!delivered) {
+                    // Message dropped (e.g. webview hidden) - the webview no longer
+                    // matches this.rows, so fall back to full updates
+                    this.webviewRowsSynced = false;
+                }
+            });
+        } catch (error) {
+            console.error('Error in sendAppendedRows:', error);
         }
     }
     
@@ -2712,7 +2798,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         return {};
     }
 
-    private updateWebview(webviewPanel: vscode.WebviewPanel) {
+    private updateWebview(webviewPanel: vscode.WebviewPanel, options?: { appendCompatible?: boolean }) {
         try {
             // Ensure data consistency before sending to webview
             if (!this.rows || !this.columns) {
@@ -2731,12 +2817,19 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             // Load persisted UI preferences (view, wrap text)
             const uiPrefs = this.context.globalState.get<{ lastView?: 'table' | 'json' | 'raw'; wrapText?: boolean }>(this.UI_PREFS_KEY, {});
 
+            const unfiltered = this.filteredRows === this.rows;
+
             webviewPanel.webview.postMessage({
                 type: 'update',
                 data: {
                     rows: this.filteredRows || [],
                     rowIndices: rowIndices, // Map filtered rows to actual indices
-                    allRows: this.rows || [], // Send the full array for index mapping
+                    // Full array for index mapping; omitted when identical to
+                    // rows (the webview falls back to rows) to halve the payload
+                    allRows: unfiltered ? undefined : (this.rows || []),
+                    // Rows were only appended since the last update, so the
+                    // webview may keep its table DOM and scroll position
+                    appendCompatible: options?.appendCompatible === true && unfiltered && this.webviewRowsSynced,
                     columns: this.columns || [],
                     isIndexing: this.isIndexing,
                     searchTerm: this.searchTerm,
@@ -2759,6 +2852,9 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                     }
                 }
             });
+            this.webviewRowsSynced = unfiltered;
+            this.lastSentRowCount = (this.filteredRows || []).length;
+            this.lastSentParsedLineCount = (this.parsedLines || []).length;
         } catch (error) {
             console.error('Error in updateWebview:', error);
         }

@@ -42,6 +42,7 @@ export const scripts = `
         let selectedRowActualIndex = null; // Actual file index of the selected row (survives re-renders)
         let followMode = false; // Auto-reload and scroll to bottom when the file grows (tail -f)
         let deferredUpdatePending = false; // An update arrived while a cell edit was in progress
+        let lastRenderedColumnsKey = null; // Visible-columns signature of the last built table header
         const TABLE_CHUNK_SIZE = 200;
         const JSON_CHUNK_SIZE = 30;
         const tableRenderState = {
@@ -2184,14 +2185,17 @@ export const scripts = `
                 console.warn('updateTable: data.rowIndices is not an array, initializing');
                 data.rowIndices = data.rows.map((_, index) => index);
             }
-            
+            // The extension omits allRows when it would be identical to rows
+            if (!Array.isArray(data.allRows)) {
+                data.allRows = data.rows;
+            }
+
             currentData = data;
-            
+
             // Handle loading state in header
             const logo = document.getElementById('logo');
             const loadingState = document.getElementById('loadingState');
-            const loadingProgress = document.getElementById('loadingProgress');
-            
+
             if (data.isIndexing) {
                 // Initial loading - show animated logo and hide controls
                 logo.style.display = 'none';
@@ -2206,36 +2210,8 @@ export const scripts = `
             }
             
             // Show loading progress if chunks are still loading
-            if (data.loadingProgress && data.loadingProgress.loadingChunks) {
-                logo.style.display = 'none';
-                const logoAnimation = document.getElementById('logoAnimation');
-                if (logoAnimation) logoAnimation.style.display = 'block';
-                loadingState.style.display = 'flex';
-                
-                const memoryInfo = data.loadingProgress.memoryOptimized ? 
-                    \`<div style="font-size: 11px; color: var(--vscode-warningForeground); margin-top: 5px;">
-                        Memory optimized: Showing \${data.loadingProgress.displayedRows.toLocaleString()} of \${data.loadingProgress.loadedLines.toLocaleString()} loaded rows
-                    </div>\` : '';
-                
-                loadingProgress.innerHTML = \`
-                    <div>\${data.loadingProgress.loadedLines.toLocaleString()} / \${data.loadingProgress.totalLines.toLocaleString()} lines (\${data.loadingProgress.progressPercent}%)</div>
-                    \${memoryInfo}
-                \`;
-                
-                // Don't show the indexing div since we have header loading state
-                document.getElementById('indexingDiv').style.display = 'none';
-                document.getElementById('dataTable').style.display = 'table';
-            } else {
-                // Loading complete - show controls and hide animated logo
-                logo.style.display = 'block';
-                const logoAnimation = document.getElementById('logoAnimation');
-                if (logoAnimation) logoAnimation.style.display = 'none';
-                loadingState.style.display = 'none';
-                
-                document.getElementById('indexingDiv').style.display = 'none';
-                document.getElementById('dataTable').style.display = 'table';
-            }
-            
+            updateLoadingBanner(data.loadingProgress);
+
             // Restore the last used view once, on the first update after load.
             // Later updates (cell edits, chunked loading) must not override in-session choices.
             if (data.uiPreferences && !uiPreferencesApplied) {
@@ -2247,25 +2223,25 @@ export const scripts = `
             }
 
             // Update search inputs
-            
-            // Update error count
-            const errorCountElement = document.getElementById('errorCount');
-            if (data.errorCount > 0) {
-                errorCountElement.textContent = data.errorCount;
-                errorCountElement.style.display = 'flex';
-                // Default to raw view if there are errors, but not while following a
-                // live-appended file (a mid-write partial last line parses as an error)
-                if (currentView === 'table' && !followMode) {
-                    switchView('raw', false);
-                }
-            } else {
-                errorCountElement.style.display = 'none';
-            }
 
-            // Rebuild the table, unless a cell edit is in progress (rebuilding
-            // would destroy the input mid-typing - defer until the edit ends;
-            // currentData is already fresh so the deferred rebuild shows new data)
-            if (document.querySelector('#tableBody td.editing')) {
+            // Update error count
+            updateErrorBadge(data.errorCount);
+
+            // If the extension guarantees rows were only appended since the last
+            // update (end of background chunk loading), keep the existing DOM -
+            // rebuilding and re-scrolling a deep table here is expensive and jarring
+            if (data.appendCompatible &&
+                lastRenderedColumnsKey === computeVisibleColumnsKey(data.columns) &&
+                isIdentityRowMapping(data) &&
+                data.rows.length >= tableRenderState.renderedRows) {
+                tableRenderState.totalRows = data.rows.length;
+                if (followMode && currentView === 'table') {
+                    requestAnimationFrame(followScrollToBottom);
+                }
+            } else if (document.querySelector('#tableBody td.editing')) {
+                // Rebuilding would destroy an in-progress cell edit - defer until
+                // the edit ends; currentData is already fresh so the deferred
+                // rebuild shows new data
                 deferredUpdatePending = true;
             } else {
                 rebuildTable();
@@ -2321,6 +2297,71 @@ export const scripts = `
             } else if (currentView === 'raw') {
                 requestAnimationFrame(ensureRawViewportFilled);
             }
+        }
+
+        // Header loading banner shared by full updates and appendRows deltas
+        function updateLoadingBanner(loadingProgress) {
+            const logo = document.getElementById('logo');
+            const loadingState = document.getElementById('loadingState');
+            const logoAnimation = document.getElementById('logoAnimation');
+            const loadingProgressElement = document.getElementById('loadingProgress');
+
+            if (loadingProgress && loadingProgress.loadingChunks) {
+                logo.style.display = 'none';
+                if (logoAnimation) logoAnimation.style.display = 'block';
+                loadingState.style.display = 'flex';
+
+                const memoryInfo = loadingProgress.memoryOptimized ?
+                    \`<div style="font-size: 11px; color: var(--vscode-warningForeground); margin-top: 5px;">
+                        Memory optimized: Showing \${loadingProgress.displayedRows.toLocaleString()} of \${loadingProgress.loadedLines.toLocaleString()} loaded rows
+                    </div>\` : '';
+
+                loadingProgressElement.innerHTML = \`
+                    <div>\${loadingProgress.loadedLines.toLocaleString()} / \${loadingProgress.totalLines.toLocaleString()} lines (\${loadingProgress.progressPercent}%)</div>
+                    \${memoryInfo}
+                \`;
+            } else {
+                // Loading complete - show controls and hide animated logo
+                logo.style.display = 'block';
+                if (logoAnimation) logoAnimation.style.display = 'none';
+                loadingState.style.display = 'none';
+            }
+
+            // Don't show the indexing div since we have header loading state
+            document.getElementById('indexingDiv').style.display = 'none';
+            document.getElementById('dataTable').style.display = 'table';
+        }
+
+        function updateErrorBadge(errorCount) {
+            const errorCountElement = document.getElementById('errorCount');
+            if (errorCount > 0) {
+                errorCountElement.textContent = errorCount;
+                errorCountElement.style.display = 'flex';
+                // Default to raw view if there are errors, but not while following a
+                // live-appended file (a mid-write partial last line parses as an error)
+                if (currentView === 'table' && !followMode) {
+                    switchView('raw', false);
+                }
+            } else {
+                errorCountElement.style.display = 'none';
+            }
+        }
+
+        // Signature of what the table header (and every row's cells) is built from
+        function computeVisibleColumnsKey(columns) {
+            if (!Array.isArray(columns)) return '';
+            return columns
+                .filter(column => column.visible)
+                .map(column => column.path + (column.isExpanded ? '*' : ''))
+                .join('|');
+        }
+
+        // True when rows are unfiltered (rowIndices is the identity mapping)
+        function isIdentityRowMapping(data) {
+            const indices = data.rowIndices;
+            if (!Array.isArray(indices) || indices.length !== data.rows.length) return false;
+            if (indices.length === 0) return true;
+            return indices[0] === 0 && indices[indices.length - 1] === indices.length - 1;
         }
 
         function buildTableHeader(data) {
@@ -2446,7 +2487,8 @@ export const scripts = `
             });
 
             thead.appendChild(headerRow);
-            
+            lastRenderedColumnsKey = computeVisibleColumnsKey(data.columns);
+
             // Restore saved column widths after rebuilding table
             if (colgroup && Object.keys(savedColumnWidths).length > 0) {
                 const cols = colgroup.querySelectorAll('col');
@@ -2739,16 +2781,27 @@ export const scripts = `
             }
         }
 
-        // Render chunks until the saved scroll offset is reachable, then restore it
+        // Render enough chunks to make the saved scroll offset reachable, then
+        // restore it. Runs synchronously in one batch: per-frame loops from
+        // successive updates used to overlap and thrash the tbody
         function restoreTableScroll(targetScroll) {
             const tableContainer = document.getElementById('tableContainer');
             if (!tableContainer) return;
 
-            if (tableRenderState.renderedRows < tableRenderState.totalRows &&
-                tableContainer.scrollHeight - tableContainer.clientHeight < targetScroll) {
+            if (tableRenderState.renderedRows > 0 && tableRenderState.renderedRows < tableRenderState.totalRows) {
+                // Estimate the rows needed from the average row height so the
+                // batch doesn't re-measure layout after every chunk
+                const rowHeight = Math.max(1, tableContainer.scrollHeight / tableRenderState.renderedRows);
+                const rowsNeeded = Math.min(tableRenderState.totalRows,
+                    Math.ceil((targetScroll + tableContainer.clientHeight) / rowHeight) + TABLE_CHUNK_SIZE);
+                while (tableRenderState.renderedRows < rowsNeeded) {
+                    renderTableChunk();
+                }
+            }
+            // Top up in case variable row heights made the estimate fall short
+            while (tableRenderState.renderedRows < tableRenderState.totalRows &&
+                   tableContainer.scrollHeight - tableContainer.clientHeight < targetScroll) {
                 renderTableChunk();
-                requestAnimationFrame(() => restoreTableScroll(targetScroll));
-                return;
             }
             tableContainer.scrollTop = targetScroll;
         }
@@ -2758,6 +2811,76 @@ export const scripts = `
             if (!deferredUpdatePending) return;
             deferredUpdatePending = false;
             rebuildTable();
+        }
+
+        // Merge an appendRows delta (background chunk loading) into currentData.
+        // Already-rendered rows and the scroll position are left untouched; lazy
+        // chunk rendering picks the new rows up as the user scrolls
+        function appendRows(data) {
+            if (!data || !Array.isArray(data.rows)) return;
+
+            // Out of sync with the extension (e.g. a message was dropped while
+            // the webview was hidden) - recover with a full update
+            if (!Array.isArray(currentData.rows) || !Array.isArray(currentData.rowIndices) ||
+                data.baseRowCount !== currentData.rows.length) {
+                vscode.postMessage({ type: 'requestFullUpdate' });
+                return;
+            }
+
+            const base = currentData.rows.length;
+            for (let i = 0; i < data.rows.length; i++) {
+                currentData.rows.push(data.rows[i]);
+                currentData.rowIndices.push(base + i);
+            }
+            if (Array.isArray(currentData.allRows) && currentData.allRows !== currentData.rows) {
+                for (let i = 0; i < data.rows.length; i++) {
+                    currentData.allRows.push(data.rows[i]);
+                }
+            }
+            if (Array.isArray(data.parsedLines)) {
+                if (!Array.isArray(currentData.parsedLines)) {
+                    currentData.parsedLines = [];
+                }
+                for (let i = 0; i < data.parsedLines.length; i++) {
+                    currentData.parsedLines.push(data.parsedLines[i]);
+                }
+            }
+
+            currentData.loadingProgress = data.loadingProgress;
+            updateLoadingBanner(data.loadingProgress);
+            if (typeof data.errorCount === 'number') {
+                currentData.errorCount = data.errorCount;
+                updateErrorBadge(data.errorCount);
+            }
+
+            tableRenderState.totalRows = currentData.rows.length;
+            jsonRenderState.totalRows = currentData.rows.length;
+            rawRenderState.totalLines = currentData.parsedLines ? currentData.parsedLines.length : 0;
+
+            if (Array.isArray(data.columns)) {
+                currentData.columns = data.columns;
+                // A new column crossed the auto-detect threshold - existing rows
+                // are missing its cells, so this (rare) case needs a full rebuild
+                if (computeVisibleColumnsKey(data.columns) !== lastRenderedColumnsKey) {
+                    if (document.querySelector('#tableBody td.editing')) {
+                        deferredUpdatePending = true;
+                    } else {
+                        rebuildTable();
+                    }
+                }
+            }
+
+            if (currentView === 'table') {
+                if (followMode) {
+                    requestAnimationFrame(followScrollToBottom);
+                } else {
+                    requestAnimationFrame(ensureTableViewportFilled);
+                }
+            } else if (currentView === 'json') {
+                requestAnimationFrame(ensureJsonViewportFilled);
+            } else if (currentView === 'raw') {
+                requestAnimationFrame(ensureRawViewportFilled);
+            }
         }
 
         function followScrollToBottom() {
@@ -3309,6 +3432,9 @@ export const scripts = `
             switch (message.type) {
                 case 'update':
                     updateTable(message.data);
+                    break;
+                case 'appendRows':
+                    appendRows(message.data);
                     break;
                 case 'clipboardValidationResult':
                     const pasteAboveMenuItem = document.getElementById('pasteAboveMenuItem');
