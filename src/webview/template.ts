@@ -54,6 +54,9 @@ ${styles}
             </label>
         </div>
 
+        <!-- File info line (records / columns / size) -->
+        <div class="file-info-bar" id="fileInfoBar" style="display: none;"></div>
+
         <!-- Find & Replace Extension Bar -->
         <div class="find-replace-bar" id="findReplaceBar" style="display: none;">
             <div class="find-replace-row">

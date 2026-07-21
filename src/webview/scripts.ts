@@ -2227,6 +2227,9 @@ export const scripts = `
             // Update error count
             updateErrorBadge(data.errorCount);
 
+            // Update the file info line (records / columns / size)
+            updateFileInfo(data);
+
             // If the extension guarantees rows were only appended since the last
             // update (end of background chunk loading), keep the existing DOM -
             // rebuilding and re-scrolling a deep table here is expensive and jarring
@@ -2330,6 +2333,49 @@ export const scripts = `
             // Don't show the indexing div since we have header loading state
             document.getElementById('indexingDiv').style.display = 'none';
             document.getElementById('dataTable').style.display = 'table';
+        }
+
+        function formatBytes(bytes) {
+            if (!bytes || bytes < 0) return '';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let value = bytes;
+            let unitIndex = 0;
+            while (value >= 1024 && unitIndex < units.length - 1) {
+                value /= 1024;
+                unitIndex++;
+            }
+            const formatted = unitIndex === 0 ? value.toString() : value.toFixed(1);
+            return formatted + ' ' + units[unitIndex];
+        }
+
+        function updateFileInfo(data) {
+            const bar = document.getElementById('fileInfoBar');
+            if (!bar) return;
+
+            const lp = data.loadingProgress || {};
+            // Count actual parsed records, not raw lines: a trailing newline or
+            // blank lines inflate loadingProgress.totalLines, so use the loaded
+            // row count (blank/empty lines are skipped during parsing).
+            const totalRecords = Array.isArray(data.allRows) ? data.allRows.length : data.rows.length;
+            const visible = data.rows.length;
+
+            if (data.isIndexing || totalRecords === 0) {
+                bar.style.display = 'none';
+                return;
+            }
+
+            const parts = [];
+            if (visible !== totalRecords) {
+                parts.push(visible.toLocaleString() + ' of ' + totalRecords.toLocaleString() + ' records');
+            } else {
+                parts.push(totalRecords.toLocaleString() + ' records');
+            }
+            parts.push(data.columns.length.toLocaleString() + ' cols');
+            const size = formatBytes(lp.fileSizeBytes || 0);
+            if (size) parts.push(size);
+
+            bar.textContent = parts.join(' · ');
+            bar.style.display = 'flex';
         }
 
         function updateErrorBadge(errorCount) {

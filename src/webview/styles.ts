@@ -326,6 +326,16 @@ export const styles = `
             flex-shrink: 0;
         }
         
+        .file-info-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            padding: 0 10px 8px;
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+        }
+
         .segmented-control {
             display: flex;
             background-color: var(--vscode-button-secondaryBackground);
