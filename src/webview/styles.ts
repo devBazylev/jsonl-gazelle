@@ -319,6 +319,8 @@ export const styles = `
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
+            row-gap: 8px;
             margin-bottom: 10px;
             padding: 10px;
             background-color: var(--vscode-editor-background);
@@ -328,6 +330,7 @@ export const styles = `
         
         .segmented-control {
             display: flex;
+            flex-shrink: 0;
             background-color: var(--vscode-button-secondaryBackground);
             border-radius: 5px;
             overflow: hidden;
@@ -343,8 +346,9 @@ export const styles = `
             display: flex;
             align-items: center;
             gap: 5px;
+            white-space: nowrap;
         }
-        
+
         .segmented-control button svg {
             width: 16px;
             height: 16px;
