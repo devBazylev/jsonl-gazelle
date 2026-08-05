@@ -662,12 +662,14 @@ export const scripts = `
                 // For 'json' and 'raw' views, let Monaco's built-in Find widget handle it
             }
 
-            // Escape: Close Find/Replace bar or Column Manager modal
+            // Escape: Close Find/Replace bar, Column Manager modal or file stats
             if (e.key === 'Escape') {
                 if (document.getElementById('findReplaceBar').style.display === 'block') {
                     closeFindReplaceBar();
                 } else if (document.getElementById('columnManagerModal').classList.contains('show')) {
                     closeColumnManager();
+                } else {
+                    toggleFileInfo(true);
                 }
             }
 
@@ -742,6 +744,9 @@ export const scripts = `
 
         // Find/Replace Button
         document.getElementById('findReplaceBtn').addEventListener('click', openFindReplaceBar);
+
+        // File stats popover
+        document.getElementById('fileInfoBtn').addEventListener('click', () => toggleFileInfo());
 
         // Column Manager Modal
         document.getElementById('columnManagerBtn').addEventListener('click', openColumnManager);
@@ -2227,8 +2232,8 @@ export const scripts = `
             // Update error count
             updateErrorBadge(data.errorCount);
 
-            // Update the file info line (records / columns / size)
-            updateFileInfo(data);
+            // Keep the file stats popover current if the user has it open
+            renderFileInfo();
 
             // If the extension guarantees rows were only appended since the last
             // update (end of background chunk loading), keep the existing DOM -
@@ -2348,34 +2353,59 @@ export const scripts = `
             return formatted + ' ' + units[unitIndex];
         }
 
-        function updateFileInfo(data) {
-            const bar = document.getElementById('fileInfoBar');
-            if (!bar) return;
+        // Fill the file stats popover from currentData. Only does work while the
+        // popover is open, so data updates during chunk loading stay cheap
+        function renderFileInfo() {
+            const popover = document.getElementById('fileInfoPopover');
+            if (!popover || popover.style.display === 'none') return;
 
+            const data = currentData || {};
             const lp = data.loadingProgress || {};
+            const rows = Array.isArray(data.rows) ? data.rows : [];
             // Count actual parsed records, not raw lines: a trailing newline or
             // blank lines inflate loadingProgress.totalLines, so use the loaded
             // row count (blank/empty lines are skipped during parsing).
-            const totalRecords = Array.isArray(data.allRows) ? data.allRows.length : data.rows.length;
-            const visible = data.rows.length;
+            const allRows = Array.isArray(data.allRows) ? data.allRows : rows;
+            const columns = Array.isArray(data.columns) ? data.columns.filter(column => column.visible).length : 0;
 
-            if (data.isIndexing || totalRecords === 0) {
-                bar.style.display = 'none';
-                return;
-            }
+            // A filtered view shows a subset, so report both counts
+            const records = rows.length !== allRows.length
+                ? rows.length.toLocaleString() + ' of ' + allRows.length.toLocaleString()
+                : allRows.length.toLocaleString();
+            // Background chunks are still being parsed, so the counts are partial
+            const partial = data.isIndexing || (lp && lp.loadingChunks);
 
-            const parts = [];
-            if (visible !== totalRecords) {
-                parts.push(visible.toLocaleString() + ' of ' + totalRecords.toLocaleString() + ' records');
-            } else {
-                parts.push(totalRecords.toLocaleString() + ' records');
-            }
-            parts.push(data.columns.length.toLocaleString() + ' cols');
-            const size = formatBytes(lp.fileSizeBytes || 0);
-            if (size) parts.push(size);
+            const entries = [
+                ['Records', records + (partial ? ' (loading…)' : '')],
+                ['Columns', columns.toLocaleString()],
+                ['Size', formatBytes(lp.fileSizeBytes || 0) || '—']
+            ];
 
-            bar.textContent = parts.join(' · ');
-            bar.style.display = 'flex';
+            popover.textContent = '';
+            entries.forEach(entry => {
+                const row = document.createElement('div');
+                row.className = 'file-info-row';
+                const label = document.createElement('span');
+                label.className = 'file-info-label';
+                label.textContent = entry[0];
+                const value = document.createElement('span');
+                value.textContent = entry[1];
+                row.appendChild(label);
+                row.appendChild(value);
+                popover.appendChild(row);
+            });
+        }
+
+        // Open/close the file stats popover; pass true to force it closed
+        function toggleFileInfo(forceClose) {
+            const popover = document.getElementById('fileInfoPopover');
+            const button = document.getElementById('fileInfoBtn');
+            if (!popover || !button) return;
+
+            const open = forceClose === true ? false : popover.style.display === 'none';
+            popover.style.display = open ? 'block' : 'none';
+            button.classList.toggle('toggled', open);
+            if (open) renderFileInfo();
         }
 
         function updateErrorBadge(errorCount) {
@@ -2915,6 +2945,10 @@ export const scripts = `
                     }
                 }
             }
+
+            // Deltas are the only update during chunk loading, so the stats
+            // would otherwise sit at the initial chunk's counts until it ends
+            renderFileInfo();
 
             if (currentView === 'table') {
                 if (followMode) {
@@ -3657,6 +3691,9 @@ export const scripts = `
             document.getElementById('tableViewContainer').style.display = 'none';
             document.getElementById('jsonViewContainer').style.display = 'none';
             document.getElementById('rawViewContainer').style.display = 'none';
+
+            // The stats popover would hover over the incoming view
+            toggleFileInfo(true);
             
             // Show/hide column manager and wrap text controls based on view
             const columnManagerBtn = document.getElementById('columnManagerBtn');
@@ -4054,6 +4091,10 @@ export const scripts = `
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.context-menu') && !e.target.closest('.row-context-menu')) {
                 hideContextMenu();
+            }
+            // The button's own handler toggles, so ignore clicks inside the control
+            if (!e.target.closest('.file-info-control')) {
+                toggleFileInfo(true);
             }
         });
         

@@ -326,13 +326,44 @@ export const styles = `
             flex-shrink: 0;
         }
         
-        .file-info-bar {
+        /* File stats button + popover */
+        .file-info-control {
+            position: relative;
             display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 8px;
-            padding: 0 10px 8px;
-            font-size: 11px;
+            flex-shrink: 0;
+        }
+
+        /* The wrapper restarts :first-of-type, so cancel the toolbar's
+           margin-left: auto that would otherwise apply to the button inside */
+        .file-info-control .column-manager-btn {
+            margin-left: 0;
+        }
+
+        .file-info-popover {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            z-index: 1000;
+            min-width: 190px;
+            padding: 8px 10px;
+            background-color: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
+            color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+            border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border));
+            border-radius: 3px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            font-size: 12px;
+            cursor: default;
+        }
+
+        .file-info-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 2px 0;
+            white-space: nowrap;
+        }
+
+        .file-info-label {
             color: var(--vscode-descriptionForeground);
         }
 

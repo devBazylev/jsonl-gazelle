@@ -401,7 +401,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             this.isIndexing = true;
             const text = document.getText();
             this.rawContent = text;
-            if (document.uri.scheme === 'file') {
+            if (document.uri.scheme === 'file' && !document.isDirty) {
                 try {
                     // O(1) filesystem stat for byte size
                     this.fileSizeBytes = (await vscode.workspace.fs.stat(document.uri)).size;
@@ -409,6 +409,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                     this.fileSizeBytes = Buffer.byteLength(text, 'utf8');
                 }
             } else {
+                // Unsaved edits (or a non-file scheme) make the on-disk size wrong
                 this.fileSizeBytes = Buffer.byteLength(text, 'utf8');
             }
             const lines = text.split('\n');
