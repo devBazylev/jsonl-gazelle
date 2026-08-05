@@ -18,6 +18,7 @@ JSONL Gazelle is a VS Code extension that registers a **custom text editor** (`j
 | `src/jsonl/types.ts` | Shared interfaces (`JsonRow`, `ParsedLine`, `ColumnInfo`). |
 | `src/jsonl/utils.ts` | Pure helpers: nested get/set/delete by dot-path, pretty→JSONL conversion, stringified-JSON detection. |
 | `src/jsonl/rowMapping.ts` | Search filtering that preserves original row indices. |
+| `src/jsonl/columns.ts` | `getUnhideableColumns()` — which hidden columns the "Unhide Column" menu may offer (mirrored in `scripts.ts`). |
 | `test/` | Plain Node test scripts (no framework), run by `npm test`. |
 | `test-data/` | Sample JSONL files plus `generate-large.js` for a ~64 MB stress file. |
 
@@ -53,7 +54,7 @@ Communication is `webview.postMessage` / `vscode.postMessage` with a `type` fiel
 
 **Webview → extension** (handled in the `onDidReceiveMessage` switch in `jsonlViewerProvider.ts`):
 
-`search`, `removeColumn`, `updateCell`, `expandColumn`, `collapseColumn`, `openUrl`, `documentChanged`, `rawContentChanged`, `rawContentSave`, `prettyContentChanged`, `prettyContentSave`, `forceSave`, `unstringifyColumn`, `deleteRow`, `insertRow`, `copyRow`, `duplicateRow`, `pasteRow`, `validateClipboard`, `reorderColumns`, `reorderRows`, `toggleColumnVisibility`, `addColumn`, `addAIColumn`, `getSettings`, `getRecentEnumValues`, `checkAPIKey`, `showAPIKeyWarning`, `saveSettings`, `resetSettings`, `generateAIRows`, `requestColumnSuggestions`, `refresh`, `requestFullUpdate`, `setFollowMode`, `setViewPreference`, `setWrapTextPreference`
+`search`, `removeColumn`, `updateCell`, `expandColumn`, `collapseColumn`, `openUrl`, `documentChanged`, `rawContentChanged`, `rawContentSave`, `prettyContentChanged`, `prettyContentSave`, `forceSave`, `unstringifyColumn`, `deleteRow`, `insertRow`, `copyRow`, `duplicateRow`, `pasteRow`, `validateClipboard`, `reorderColumns`, `reorderRows`, `toggleColumnVisibility`, `showColumns`, `addColumn`, `addAIColumn`, `getSettings`, `getRecentEnumValues`, `checkAPIKey`, `showAPIKeyWarning`, `saveSettings`, `resetSettings`, `generateAIRows`, `requestColumnSuggestions`, `refresh`, `requestFullUpdate`, `setFollowMode`, `setViewPreference`, `setWrapTextPreference`
 
 **Extension → webview**:
 
