@@ -26,64 +26,31 @@ export const styles = `
             overflow: hidden;
         }
         
-        .header {
-            display: flex;
-            align-items: center;
-            padding: 10px;
-            background-color: var(--vscode-editor-background);
-            border-bottom: 1px solid var(--vscode-panel-border);
-            gap: 10px;
+        .logo-container {
+            margin-right: 6px;
         }
-        
+
         .logo {
             width: 32px;
             height: 32px;
-            margin-right: 10px;
         }
-        
+
         .logo.loading {
             animation: spin 2s linear infinite;
         }
-        
+
         .loading-state {
             display: flex;
             align-items: center;
             gap: 10px;
-            flex: 1;
-            justify-content: center;
-            font-size: 14px;
+            font-size: 13px;
+            white-space: nowrap;
             color: var(--vscode-descriptionForeground);
         }
         
         .loading-progress {
             font-size: 12px;
             color: var(--vscode-descriptionForeground);
-        }
-        
-        .checkbox {
-            accent-color: var(--vscode-checkbox-background);
-        }
-        
-        .button {
-            padding: 5px 10px;
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        
-        .button svg {
-            width: 16px;
-            height: 16px;
-            flex-shrink: 0;
-        }
-        
-        .button:hover {
-            background-color: var(--vscode-button-hoverBackground);
         }
         
         .table-container {
@@ -100,13 +67,6 @@ export const styles = `
         .view-container.isolated {
             position: relative;
             z-index: 10;
-        }
-        
-        #rawViewContainer {
-            height: 100%;
-            overflow: auto;
-            font-family: var(--vscode-editor-font-family);
-            font-size: 12px;
         }
         
         table {
@@ -127,7 +87,7 @@ export const styles = `
             position: sticky;
             top: 0;
             z-index: 10;
-            cursor: pointer;
+            cursor: grab;
             user-select: none;
             min-width: 50px;
             white-space: nowrap;
@@ -237,12 +197,6 @@ export const styles = `
             gap: 10px;
         }
         
-        .indexing-icon {
-            width: 32px;
-            height: 32px;
-            animation: spin 2s linear infinite;
-        }
-        
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
@@ -319,13 +273,14 @@ export const styles = `
             display: flex;
             align-items: center;
             gap: 10px;
-            margin-bottom: 10px;
+            flex-wrap: wrap;
+            row-gap: 8px;
             padding: 10px;
             background-color: var(--vscode-editor-background);
             border-bottom: 1px solid var(--vscode-panel-border);
             flex-shrink: 0;
         }
-        
+
         /* File stats button + popover */
         .file-info-control {
             position: relative;
@@ -369,23 +324,28 @@ export const styles = `
 
         .segmented-control {
             display: flex;
+            flex-shrink: 0;
             background-color: var(--vscode-button-secondaryBackground);
             border-radius: 5px;
             overflow: hidden;
         }
-        
+
         .segmented-control button {
             background: none;
             border: none;
-            padding: 8px 16px;
+            padding: 0 14px;
+            height: 28px;
+            font-size: 13px;
+            font-family: var(--vscode-font-family);
             color: var(--vscode-button-secondaryForeground);
             cursor: pointer;
             transition: background-color 0.2s;
             display: flex;
             align-items: center;
-            gap: 5px;
+            gap: 6px;
+            white-space: nowrap;
         }
-        
+
         .segmented-control button svg {
             width: 16px;
             height: 16px;
@@ -412,43 +372,13 @@ export const styles = `
             justify-content: center;
             font-size: 12px;
             font-weight: bold;
-            margin-left: 10px;
         }
-        
+
         .raw-view {
             height: 100%;
-            font-family: var(--vscode-editor-font-family);
-            font-size: var(--vscode-editor-font-size);
-            line-height: 1.4;
-            overflow: auto;
             background-color: var(--vscode-editor-background);
-            padding: 0;
         }
-        
-        .raw-line {
-            display: flex;
-            margin-bottom: 2px;
-        }
-        
-        .raw-line-number {
-            color: var(--vscode-editorLineNumber-foreground);
-            user-select: none;
-            width: 50px;
-            text-align: right;
-            margin-right: 15px;
-            flex-shrink: 0;
-        }
-        
-        .raw-line-content {
-            flex: 1;
-            white-space: pre;
-        }
-        
-        .raw-line.error {
-            background-color: var(--vscode-inputValidation-errorBackground);
-            color: var(--vscode-inputValidation-errorForeground);
-        }
-        
+
         .expandable-cell {
             cursor: pointer;
             position: relative;
@@ -549,97 +479,28 @@ export const styles = `
             padding: 10px;
         }
         
-        .json-view {
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            line-height: 1.4;
-            overflow: auto;
-            background-color: var(--vscode-editor-background);
-            padding: 10px;
-            width: 100%;
-            box-sizing: border-box;
-            overflow-x: auto;
-            overflow-y: auto;
-        }
-        
-        .json-line {
-            display: flex;
-            margin-bottom: 2px;
-            width: 100%;
-            min-width: 0;
-            overflow: visible;
-        }
-        
-        .line-number {
-            color: var(--vscode-editorLineNumber-foreground);
-            user-select: none;
-            width: 50px;
-            text-align: right;
-            margin-right: 15px;
-            flex-shrink: 0;
-        }
-        
-        .json-content {
-            flex: 1;
-            white-space: pre;
-        }
-        
-        .json-content-editable {
-            flex: 1;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            line-height: 1.4;
-            background-color: var(--vscode-editor-background);
-            color: var(--vscode-editor-foreground);
-            border: 1px solid transparent;
-            border-radius: 3px;
-            padding: 4px 8px;
-            resize: none;
-            outline: none;
-            width: 100%;
-            min-width: 300px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-            overflow: hidden;
-            box-sizing: border-box;
-            height: auto;
-        }
-        
-        .json-content-editable:focus {
-            border-color: var(--vscode-focusBorder);
-            box-shadow: 0 0 0 1px var(--vscode-focusBorder);
-        }
-        
-        .json-content-editable.json-error {
-            border-color: var(--vscode-inputValidation-errorBorder);
-            background-color: var(--vscode-inputValidation-errorBackground);
-        }
-        
-        .json-content-editable.json-valid {
-            border-color: var(--vscode-inputValidation-infoBorder);
-        }
-        
-        /* Column Manager Button */
+        /* Toolbar buttons (Refresh, Follow, Find, Columns, Settings) */
         .column-manager-btn {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
             border: none;
-            padding: 8px 16px;
+            padding: 0 12px;
+            height: 28px;
             border-radius: 5px;
             cursor: pointer;
             display: flex;
             align-items: center;
             gap: 6px;
             font-size: 13px;
+            font-family: var(--vscode-font-family);
         }
-        
+
         .column-manager-btn:first-of-type {
             margin-left: auto;
         }
-        
+
         .column-manager-btn:hover {
-            background-color: var(--vscode-button-hoverBackground);
+            background-color: var(--vscode-button-secondaryHoverBackground);
         }
 
         .column-manager-btn.toggled {
@@ -659,7 +520,8 @@ export const styles = `
             align-items: center;
             gap: 8px;
             cursor: pointer;
-            padding: 8px 12px;
+            padding: 0 12px;
+            height: 28px;
             border-radius: 5px;
             font-size: 13px;
             user-select: none;
@@ -988,11 +850,7 @@ export const styles = `
         th.drag-over-header {
             border-left: 3px solid var(--vscode-focusBorder);
         }
-        
-        th {
-            cursor: grab;
-        }
-        
+
         th:active {
             cursor: grabbing;
         }

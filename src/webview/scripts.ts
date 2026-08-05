@@ -764,20 +764,21 @@ export const scripts = `
             const table = document.getElementById('dataTable');
             const colgroup = document.getElementById('tableColgroup');
             const thead = table.querySelector('thead tr');
-            
+
             if (e.target.checked) {
-                // Freeze current column widths before applying wrap
-                if (colgroup && thead) {
+                // Freeze current column widths before applying wrap; only while the
+                // table is visible - a hidden table measures every column as 0px
+                if (currentView === 'table' && colgroup && thead) {
                     const headers = thead.querySelectorAll('th');
                     const cols = colgroup.querySelectorAll('col');
-                    
+
                     // Measure and freeze ALL column widths
                     headers.forEach((th, index) => {
                         if (cols[index]) {
                             // Always set width to current actual width
                             const width = th.getBoundingClientRect().width;
                             cols[index].style.width = width + 'px';
-                            
+
                             // Save width for persistence
                             const columnPath = cols[index].dataset.columnPath;
                             if (columnPath) {
@@ -785,11 +786,11 @@ export const scripts = `
                             }
                         }
                     });
+
+                    // Apply fixed layout to prevent recalculation
+                    table.style.tableLayout = 'fixed';
                 }
-                
-                // Apply fixed layout to prevent recalculation
-                table.style.tableLayout = 'fixed';
-                
+
                 // Add wrap class
                 table.classList.add('text-wrap');
             } else {
@@ -798,6 +799,11 @@ export const scripts = `
                 // Note: We intentionally do NOT remove table-layout or col widths
                 // so the column sizes remain stable
             }
+
+            // Wrap is shared by all three views; keep the editors in sync
+            const editorWordWrap = e.target.checked ? 'on' : 'off';
+            if (prettyEditor) prettyEditor.updateOptions({ wordWrap: editorWordWrap });
+            if (rawEditor) rawEditor.updateOptions({ wordWrap: editorWordWrap });
 
             // Persist wrap text preference globally
             vscode.postMessage({
@@ -2207,6 +2213,7 @@ export const scripts = `
                 const logoAnimation = document.getElementById('logoAnimation');
                 if (logoAnimation) logoAnimation.style.display = 'block';
                 loadingState.style.display = 'flex';
+                document.getElementById('loadingLabel').textContent = 'Loading large file...';
                 
                 // Don't show the indexing div since we have header loading state
                 document.getElementById('indexingDiv').style.display = 'none';
@@ -2264,19 +2271,9 @@ export const scripts = `
 
                 if (wrapCheckbox && wrapCheckbox.checked !== desiredWrap) {
                     wrapCheckbox.checked = desiredWrap;
-
-                    if (currentView === 'table') {
-                        // Go through the checkbox's change handler so the
-                        // width-freezing logic sees the visible table
-                        wrapCheckbox.dispatchEvent(new Event('change'));
-                    } else {
-                        // Table is hidden, so widths can't be measured; just
-                        // toggle the class and let auto layout apply on switch
-                        const table = document.getElementById('dataTable');
-                        if (table) {
-                            table.classList.toggle('text-wrap', desiredWrap);
-                        }
-                    }
+                    // The change handler applies wrap to whichever views exist
+                    // and skips width-freezing while the table is hidden
+                    wrapCheckbox.dispatchEvent(new Event('change'));
                 }
             }
 
@@ -2318,6 +2315,7 @@ export const scripts = `
                 logo.style.display = 'none';
                 if (logoAnimation) logoAnimation.style.display = 'block';
                 loadingState.style.display = 'flex';
+                document.getElementById('loadingLabel').textContent = 'Loading large file...';
 
                 const memoryInfo = loadingProgress.memoryOptimized ?
                     \`<div style="font-size: 11px; color: var(--vscode-warningForeground); margin-top: 5px;">
@@ -3678,7 +3676,8 @@ export const scripts = `
             logo.style.display = 'none';
             if (logoAnimation) logoAnimation.style.display = 'block';
             loadingState.style.display = 'flex';
-            loadingState.innerHTML = '<div>Switching view...</div>';
+            document.getElementById('loadingLabel').textContent = 'Switching view...';
+            document.getElementById('loadingProgress').innerHTML = '';
             
             // Hide search container during view switch
             
@@ -3695,9 +3694,8 @@ export const scripts = `
             // The stats popover would hover over the incoming view
             toggleFileInfo(true);
             
-            // Show/hide column manager and wrap text controls based on view
+            // Show/hide the controls that only apply to the table view
             const columnManagerBtn = document.getElementById('columnManagerBtn');
-            const wrapTextControl = document.querySelector('.wrap-text-control');
             const findReplaceBtn = document.getElementById('findReplaceBtn');
             const settingsBtn = document.getElementById('settingsBtn');
             const followBtn = document.getElementById('followBtn');
@@ -3711,7 +3709,6 @@ export const scripts = `
                     document.getElementById('dataTable').style.display = 'table';
                     // Show column controls for table view
                     columnManagerBtn.style.display = 'flex';
-                    wrapTextControl.style.display = 'flex';
                     findReplaceBtn.style.display = 'flex';
                     settingsBtn.style.display = 'flex';
                     // Hide loading state immediately for table view (already rendered)
@@ -3727,7 +3724,6 @@ export const scripts = `
                     document.getElementById('jsonViewContainer').classList.add('isolated');
                     // Hide column controls for json view
                     columnManagerBtn.style.display = 'none';
-                    wrapTextControl.style.display = 'none';
                     settingsBtn.style.display = 'none';
                     // Show find button (triggers Monaco's find widget)
                     findReplaceBtn.style.display = 'flex';
@@ -3757,7 +3753,6 @@ export const scripts = `
                     document.getElementById('rawViewContainer').style.display = 'block';
                     // Hide column controls for raw view
                     columnManagerBtn.style.display = 'none';
-                    wrapTextControl.style.display = 'none';
                     settingsBtn.style.display = 'none';
                     // Show find button (triggers Monaco's find widget)
                     findReplaceBtn.style.display = 'flex';
@@ -3798,6 +3793,29 @@ export const scripts = `
             return 'vs';
         }
 
+        // Shared options so the Pretty Print and Raw editors look identical
+        // (and match the table view's monospace font)
+        function getSharedEditorOptions() {
+            // Monaco can't resolve CSS variables (it measures text on a canvas),
+            // so read the concrete editor font from the webview's CSS variables
+            const editorFontFamily = getComputedStyle(document.body)
+                .getPropertyValue('--vscode-editor-font-family').trim() ||
+                'Menlo, Monaco, "Courier New", monospace';
+
+            return {
+                theme: getMonacoTheme(),
+                automaticLayout: true,
+                scrollBeyondLastLine: false,
+                minimap: { enabled: false },
+                wordWrap: document.getElementById('wrapTextCheckbox').checked ? 'on' : 'off',
+                folding: true,
+                fontSize: 12,
+                fontFamily: editorFontFamily,
+                padding: { top: 8, bottom: 8 },
+                lineNumbersMinChars: 3
+            };
+        }
+
         function updatePrettyView() {
             const editorContainer = document.getElementById('prettyEditor');
             if (!editorContainer) return;
@@ -3813,14 +3831,9 @@ export const scripts = `
                 const prettyContent = currentData.prettyContent || '';
                 const lineMapping = currentData.prettyLineMapping || [];
 
-                prettyEditor = monaco.editor.create(editorContainer, {
+                prettyEditor = monaco.editor.create(editorContainer, Object.assign(getSharedEditorOptions(), {
                     value: prettyContent,
                     language: 'json',
-                    theme: getMonacoTheme(),
-                    automaticLayout: true,
-                    scrollBeyondLastLine: false,
-                    minimap: { enabled: false },
-                    wordWrap: 'on',
                     lineNumbers: lineMapping.length > 0 ? (lineNumber) => {
                         // Use custom line numbers based on mapping
                         if (lineNumber <= lineMapping.length) {
@@ -3829,11 +3842,8 @@ export const scripts = `
                             return mappedNumber === 0 ? '' : mappedNumber.toString();
                         }
                         return lineNumber.toString();
-                    } : 'on',
-                    folding: true,
-                    fontSize: 12,
-                    fontFamily: 'var(--vscode-editor-font-family)'
-                });
+                    } : 'on'
+                }));
 
                 // Disable JSON validation for JSONL files
                 monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
@@ -3939,19 +3949,11 @@ export const scripts = `
                     rawEditor.dispose();
                 }
                 
-                rawEditor = monaco.editor.create(editorContainer, {
+                rawEditor = monaco.editor.create(editorContainer, Object.assign(getSharedEditorOptions(), {
                     value: currentData.rawContent || '',
                     language: 'json',
-                    theme: getMonacoTheme(),
-                    automaticLayout: true,
-                    scrollBeyondLastLine: false,
-                    minimap: { enabled: false },
-                    wordWrap: 'on',
-                    lineNumbers: 'on',
-                    folding: true,
-                    fontSize: 12,
-                    fontFamily: 'var(--vscode-editor-font-family)'
-                });
+                    lineNumbers: 'on'
+                }));
                 
                 // Disable JSON validation for JSONL files
                 monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
