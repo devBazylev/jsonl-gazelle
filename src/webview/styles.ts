@@ -283,7 +283,6 @@ export const styles = `
 
         /* File stats button + popover */
         .file-info-control {
-            position: relative;
             display: flex;
             flex-shrink: 0;
         }
@@ -294,10 +293,12 @@ export const styles = `
             margin-left: 0;
         }
 
+        /* Positioned by positionFileInfo() - the toolbar wraps at narrow
+           widths, so the button's place on screen is not fixed */
         .file-info-popover {
-            position: absolute;
-            top: calc(100% + 6px);
-            right: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
             z-index: 1000;
             min-width: 190px;
             padding: 8px 10px;

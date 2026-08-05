@@ -747,6 +747,8 @@ export const scripts = `
 
         // File stats popover
         document.getElementById('fileInfoBtn').addEventListener('click', () => toggleFileInfo());
+        // A resize can move or rewrap the toolbar out from under the popover
+        window.addEventListener('resize', () => toggleFileInfo(true));
 
         // Column Manager Modal
         document.getElementById('columnManagerBtn').addEventListener('click', openColumnManager);
@@ -2394,6 +2396,23 @@ export const scripts = `
             });
         }
 
+        // Hang the popover under its button, clamped to the viewport: the
+        // toolbar wraps at narrow widths, so the button can sit close enough
+        // to an edge that a fixed anchor would push the panel off screen
+        function positionFileInfo() {
+            const popover = document.getElementById('fileInfoPopover');
+            const button = document.getElementById('fileInfoBtn');
+            if (!popover || !button) return;
+
+            const margin = 8;
+            const rect = button.getBoundingClientRect();
+            const width = popover.offsetWidth;
+            const rightmost = Math.max(margin, document.documentElement.clientWidth - width - margin);
+
+            popover.style.left = Math.max(margin, Math.min(rect.right - width, rightmost)) + 'px';
+            popover.style.top = (rect.bottom + 6) + 'px';
+        }
+
         // Open/close the file stats popover; pass true to force it closed
         function toggleFileInfo(forceClose) {
             const popover = document.getElementById('fileInfoPopover');
@@ -2403,7 +2422,10 @@ export const scripts = `
             const open = forceClose === true ? false : popover.style.display === 'none';
             popover.style.display = open ? 'block' : 'none';
             button.classList.toggle('toggled', open);
-            if (open) renderFileInfo();
+            if (open) {
+                renderFileInfo();
+                positionFileInfo();
+            }
         }
 
         function updateErrorBadge(errorCount) {
