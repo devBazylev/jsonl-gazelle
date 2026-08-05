@@ -662,12 +662,14 @@ export const scripts = `
                 // For 'json' and 'raw' views, let Monaco's built-in Find widget handle it
             }
 
-            // Escape: Close Find/Replace bar or Column Manager modal
+            // Escape: Close Find/Replace bar, Column Manager modal or file stats
             if (e.key === 'Escape') {
                 if (document.getElementById('findReplaceBar').style.display === 'block') {
                     closeFindReplaceBar();
                 } else if (document.getElementById('columnManagerModal').classList.contains('show')) {
                     closeColumnManager();
+                } else {
+                    toggleFileInfo(true);
                 }
             }
 
@@ -742,6 +744,11 @@ export const scripts = `
 
         // Find/Replace Button
         document.getElementById('findReplaceBtn').addEventListener('click', openFindReplaceBar);
+
+        // File stats popover
+        document.getElementById('fileInfoBtn').addEventListener('click', () => toggleFileInfo());
+        // A resize can move or rewrap the toolbar out from under the popover
+        window.addEventListener('resize', () => toggleFileInfo(true));
 
         // Column Manager Modal
         document.getElementById('columnManagerBtn').addEventListener('click', openColumnManager);
@@ -2384,6 +2391,9 @@ export const scripts = `
             // Update error count
             updateErrorBadge(data.errorCount);
 
+            // Keep the file stats popover current if the user has it open
+            renderFileInfo();
+
             // If the extension guarantees rows were only appended since the last
             // update (end of background chunk loading), keep the existing DOM -
             // rebuilding and re-scrolling a deep table here is expensive and jarring
@@ -2478,6 +2488,94 @@ export const scripts = `
             // Don't show the indexing div since we have header loading state
             document.getElementById('indexingDiv').style.display = 'none';
             document.getElementById('dataTable').style.display = 'table';
+        }
+
+        function formatBytes(bytes) {
+            if (!bytes || bytes < 0) return '';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let value = bytes;
+            let unitIndex = 0;
+            while (value >= 1024 && unitIndex < units.length - 1) {
+                value /= 1024;
+                unitIndex++;
+            }
+            const formatted = unitIndex === 0 ? value.toString() : value.toFixed(1);
+            return formatted + ' ' + units[unitIndex];
+        }
+
+        // Fill the file stats popover from currentData. Only does work while the
+        // popover is open, so data updates during chunk loading stay cheap
+        function renderFileInfo() {
+            const popover = document.getElementById('fileInfoPopover');
+            if (!popover || popover.style.display === 'none') return;
+
+            const data = currentData || {};
+            const lp = data.loadingProgress || {};
+            const rows = Array.isArray(data.rows) ? data.rows : [];
+            // Count actual parsed records, not raw lines: a trailing newline or
+            // blank lines inflate loadingProgress.totalLines, so use the loaded
+            // row count (blank/empty lines are skipped during parsing).
+            const allRows = Array.isArray(data.allRows) ? data.allRows : rows;
+            const columns = Array.isArray(data.columns) ? data.columns.filter(column => column.visible).length : 0;
+
+            // A filtered view shows a subset, so report both counts
+            const records = rows.length !== allRows.length
+                ? rows.length.toLocaleString() + ' of ' + allRows.length.toLocaleString()
+                : allRows.length.toLocaleString();
+            // Background chunks are still being parsed, so the counts are partial
+            const partial = data.isIndexing || (lp && lp.loadingChunks);
+
+            const entries = [
+                ['Records', records + (partial ? ' (loading…)' : '')],
+                ['Columns', columns.toLocaleString()],
+                ['Size', formatBytes(lp.fileSizeBytes || 0) || '—']
+            ];
+
+            popover.textContent = '';
+            entries.forEach(entry => {
+                const row = document.createElement('div');
+                row.className = 'file-info-row';
+                const label = document.createElement('span');
+                label.className = 'file-info-label';
+                label.textContent = entry[0];
+                const value = document.createElement('span');
+                value.textContent = entry[1];
+                row.appendChild(label);
+                row.appendChild(value);
+                popover.appendChild(row);
+            });
+        }
+
+        // Hang the popover under its button, clamped to the viewport: the
+        // toolbar wraps at narrow widths, so the button can sit close enough
+        // to an edge that a fixed anchor would push the panel off screen
+        function positionFileInfo() {
+            const popover = document.getElementById('fileInfoPopover');
+            const button = document.getElementById('fileInfoBtn');
+            if (!popover || !button) return;
+
+            const margin = 8;
+            const rect = button.getBoundingClientRect();
+            const width = popover.offsetWidth;
+            const rightmost = Math.max(margin, document.documentElement.clientWidth - width - margin);
+
+            popover.style.left = Math.max(margin, Math.min(rect.right - width, rightmost)) + 'px';
+            popover.style.top = (rect.bottom + 6) + 'px';
+        }
+
+        // Open/close the file stats popover; pass true to force it closed
+        function toggleFileInfo(forceClose) {
+            const popover = document.getElementById('fileInfoPopover');
+            const button = document.getElementById('fileInfoBtn');
+            if (!popover || !button) return;
+
+            const open = forceClose === true ? false : popover.style.display === 'none';
+            popover.style.display = open ? 'block' : 'none';
+            button.classList.toggle('toggled', open);
+            if (open) {
+                renderFileInfo();
+                positionFileInfo();
+            }
         }
 
         function updateErrorBadge(errorCount) {
@@ -3020,6 +3118,10 @@ export const scripts = `
                     }
                 }
             }
+
+            // Deltas are the only update during chunk loading, so the stats
+            // would otherwise sit at the initial chunk's counts until it ends
+            renderFileInfo();
 
             if (currentView === 'table') {
                 if (followMode) {
@@ -3763,6 +3865,9 @@ export const scripts = `
             document.getElementById('tableViewContainer').style.display = 'none';
             document.getElementById('jsonViewContainer').style.display = 'none';
             document.getElementById('rawViewContainer').style.display = 'none';
+
+            // The stats popover would hover over the incoming view
+            toggleFileInfo(true);
             
             // Show/hide the controls that only apply to the table view
             const columnManagerBtn = document.getElementById('columnManagerBtn');
@@ -4164,6 +4269,10 @@ export const scripts = `
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.context-menu') && !e.target.closest('.row-context-menu')) {
                 hideContextMenu();
+            }
+            // The button's own handler toggles, so ignore clicks inside the control
+            if (!e.target.closest('.file-info-control')) {
+                toggleFileInfo(true);
             }
         });
         

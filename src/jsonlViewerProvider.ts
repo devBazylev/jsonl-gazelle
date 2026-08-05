@@ -54,6 +54,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     private webviewRowsSynced: boolean = false;
     private totalLines: number = 0;
     private loadedLines: number = 0;
+    private fileSizeBytes: number = 0;
     private pathCounts: { [key: string]: number } = {};
     private currentWebviewPanel: vscode.WebviewPanel | null = null;
     private memoryOptimized: boolean = false;
@@ -405,6 +406,17 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             this.isIndexing = true;
             const text = document.getText();
             this.rawContent = text;
+            if (document.uri.scheme === 'file' && !document.isDirty) {
+                try {
+                    // O(1) filesystem stat for byte size
+                    this.fileSizeBytes = (await vscode.workspace.fs.stat(document.uri)).size;
+                } catch {
+                    this.fileSizeBytes = Buffer.byteLength(text, 'utf8');
+                }
+            } else {
+                // Unsaved edits (or a non-file scheme) make the on-disk size wrong
+                this.fileSizeBytes = Buffer.byteLength(text, 'utf8');
+            }
             const lines = text.split('\n');
             
             this.totalLines = lines.length;
@@ -609,7 +621,8 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                         loadingChunks: this.loadingChunks,
                         progressPercent: this.totalLines > 0 ? Math.round((this.loadedLines / this.totalLines) * 100) : 100,
                         memoryOptimized: this.memoryOptimized,
-                        displayedRows: this.rows.length
+                        displayedRows: this.rows.length,
+                        fileSizeBytes: this.fileSizeBytes || 0
                     }
                 }
             };
@@ -2867,7 +2880,8 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                         loadingChunks: this.loadingChunks,
                         progressPercent: this.totalLines > 0 ? Math.round((this.loadedLines / this.totalLines) * 100) : 100,
                         memoryOptimized: this.memoryOptimized,
-                        displayedRows: this.rows.length
+                        displayedRows: this.rows.length,
+                        fileSizeBytes: this.fileSizeBytes || 0
                     },
                     uiPreferences: {
                         lastView: uiPrefs.lastView || 'table',
