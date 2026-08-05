@@ -4,7 +4,7 @@ This document describes the actual architecture of JSONL Gazelle so that human c
 
 ## Overview
 
-JSONL Gazelle is a VS Code extension that registers a **custom text editor** (`jsonl-gazelle.jsonlViewer`) for `.jsonl` and `.ndjson` files. It renders three views — Table, Pretty Print, and Raw — inside a single webview, supports in-place editing that writes back to the underlying text document, and includes optional OpenAI-powered features (AI columns, AI row generation, column suggestions).
+JSONL Gazelle is a VS Code extension that registers a **custom text editor** (`jsonl-gazelle.jsonlViewer`) for `.jsonl` and `.ndjson` files. It renders three views — Table, Pretty Print, and Raw — inside a single webview, supports in-place editing that writes back to the underlying text document, includes a file stats popover showing record count, column count, and file size, and provides optional AI-powered features (AI columns, AI row generation, column suggestions) via multiple providers (OpenAI, Anthropic, Google Gemini, or local OpenAI-compatible servers).
 
 ## Repository Layout
 
@@ -71,8 +71,8 @@ All writes go through `vscode.workspace.applyEdit()` with a full-document replac
 
 ## AI Integration (as it actually exists)
 
-- **Provider**: OpenAI only. `fetch` calls to `https://api.openai.com/v1/chat/completions` run in the **extension host**, not the webview.
-- **API key**: `context.secrets` under `openaiApiKey`. **Model**: `context.globalState` under `openaiModel` (default `gpt-5.4-mini`). Both are managed through the in-app settings modal (gear icon), *not* VS Code settings.
+- **Providers**: OpenAI, Anthropic, Google Gemini, and OpenAI-compatible endpoints (Ollama, LM Studio, vLLM, etc.). API calls run in the **extension host**, not the webview.
+- **Settings**: API keys and selected provider/model are stored in `context.secrets` and `context.globalState`, managed through the in-app settings modal (gear icon), *not* VS Code settings.
 - **Prompt templates** support these placeholders (resolved per row in `jsonlViewerProvider.ts`):
   - `{{row}}` — the entire row as JSON
   - `{{row.fieldname}}`, `{{row.fieldname[0]}}` — nested field / array element by path
@@ -80,8 +80,7 @@ All writes go through `vscode.workspace.applyEdit()` with a full-document replac
   - `{{rows_before}}` / `{{rows_after}}` — counts around the current row
   - `{{context_rows}}` / `{{row_count}}` — used by AI row generation
 - **Features**: fill a new column with AI output per row (`addAIColumn`), generate new rows from context (`generateAIRows`), and AI-suggested column definitions (`requestColumnSuggestions`).
-
-There are no other providers (no Anthropic/Gemini/local endpoints) and no WebSocket/agent-endpoint integration; adding a provider means abstracting the two `fetch` call sites in `jsonlViewerProvider.ts`.
+- **Model lists** are fetched live from each provider at settings time, allowing users to select from available models without manual configuration.
 
 ## Configuration
 
