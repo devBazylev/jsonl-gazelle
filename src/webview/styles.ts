@@ -228,6 +228,54 @@ export const styles = `
             margin: 5px 0;
         }
 
+        .context-menu-item.has-submenu {
+            position: relative;
+            padding-right: 28px;
+        }
+
+        .submenu-arrow {
+            position: absolute;
+            right: 10px;
+            opacity: 0.7;
+        }
+
+        .context-submenu {
+            display: none;
+            position: absolute;
+            top: -6px;
+            left: 100%;
+            min-width: 160px;
+            max-width: 320px;
+            max-height: 320px;
+            overflow-y: auto;
+            background-color: var(--vscode-menu-background);
+            border: 1px solid var(--vscode-menu-border);
+            border-radius: 3px;
+            padding: 5px 0;
+            z-index: 1001;
+        }
+
+        .context-menu-item.has-submenu:hover > .context-submenu,
+        .context-menu-item.has-submenu.submenu-open > .context-submenu {
+            display: block;
+        }
+
+        .context-submenu.flip-left {
+            left: auto;
+            right: 100%;
+        }
+
+        .context-submenu.flip-up {
+            top: auto;
+            bottom: -6px;
+        }
+
+        .context-submenu .context-menu-item {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         .row-context-menu {
             position: absolute;
             background-color: var(--vscode-menu-background);

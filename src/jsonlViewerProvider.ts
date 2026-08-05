@@ -3,6 +3,7 @@ import * as path from 'path';
 import { JsonRow, ParsedLine, ColumnInfo } from './jsonl/types';
 import * as utils from './jsonl/utils';
 import { filterRowsWithIndices } from './jsonl/rowMapping';
+import { getUnhideableColumns } from './jsonl/columns';
 import { getHtmlTemplate } from './webview/template';
 import { styles } from './webview/styles';
 import { scripts } from './webview/scripts';
@@ -186,6 +187,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                                 break;
                             case 'toggleColumnVisibility':
                                 this.toggleColumnVisibility(message.columnPath, document);
+                                this.updateWebview(webviewPanel);
+                                break;
+                            case 'showColumns':
+                                this.showColumns(message.columnPaths, document);
                                 this.updateWebview(webviewPanel);
                                 break;
                             case 'addColumn':
@@ -1078,6 +1083,24 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         column.visible = !column.visible;
 
         // Persist visibility preference for this file if document is provided
+        if (document) {
+            this.updateColumnPreferencesForDocument(document);
+        }
+    }
+
+    /**
+     * Make hidden columns visible again. `columnPaths` unhides exactly those columns;
+     * omitting it unhides everything the user hid (see getUnhideableColumns).
+     */
+    private showColumns(columnPaths: string[] | undefined, document?: vscode.TextDocument) {
+        const targets = Array.isArray(columnPaths)
+            ? this.columns.filter(col => !col.visible && columnPaths.indexOf(col.path) !== -1)
+            : getUnhideableColumns(this.columns);
+
+        if (targets.length === 0) return;
+
+        targets.forEach(col => { col.visible = true; });
+
         if (document) {
             this.updateColumnPreferencesForDocument(document);
         }

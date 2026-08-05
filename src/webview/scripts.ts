@@ -1919,22 +1919,148 @@ export const scripts = `
         
         
         
+        // --- shared:unhideable-columns (keep in sync with src/jsonl/columns.ts) ---
+        function getUnhideableColumns(columns) {
+            if (!Array.isArray(columns)) {
+                return [];
+            }
+
+            const byPath = new Map();
+            columns.forEach(col => byPath.set(col.path, col));
+
+            return columns.filter(col => {
+                if (col.visible || col.isExpanded) {
+                    return false;
+                }
+                if (col.parentPath) {
+                    const parent = byPath.get(col.parentPath);
+                    if (!parent || !parent.isExpanded) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        }
+        // --- end shared:unhideable-columns ---
+
+        // Fills the "Unhide Column" submenu; returns true when there is anything to unhide
+        function populateUnhideColumnsMenu() {
+            const menuItem = document.getElementById('unhideColumnsMenuItem');
+            const submenu = document.getElementById('unhideColumnsSubmenu');
+            const label = document.getElementById('unhideColumnsLabel');
+            if (!menuItem || !submenu) return false;
+
+            menuItem.classList.remove('submenu-open');
+            submenu.classList.remove('flip-left', 'flip-up');
+            submenu.scrollTop = 0;
+            submenu.innerHTML = '';
+
+            const hiddenColumns = getUnhideableColumns(currentData && currentData.columns);
+
+            if (hiddenColumns.length === 0) {
+                menuItem.style.display = 'none';
+                return false;
+            }
+
+            if (label) {
+                label.textContent = 'Unhide Column (' + hiddenColumns.length + ')';
+            }
+
+            hiddenColumns.forEach(column => {
+                const entry = document.createElement('div');
+                entry.className = 'context-menu-item';
+                entry.dataset.action = 'unhideColumn';
+                entry.dataset.columnPath = column.path;
+                entry.textContent = column.displayName || column.path;
+                entry.title = column.path;
+                submenu.appendChild(entry);
+            });
+
+            if (hiddenColumns.length > 1) {
+                const separator = document.createElement('div');
+                separator.className = 'context-menu-separator';
+                submenu.appendChild(separator);
+
+                const showAll = document.createElement('div');
+                showAll.className = 'context-menu-item';
+                showAll.dataset.action = 'unhideAllColumns';
+                showAll.textContent = 'Unhide All Columns';
+                submenu.appendChild(showAll);
+            }
+
+            menuItem.style.display = 'block';
+            return true;
+        }
+
+        // Flip the submenu when it would run past the right or bottom edge of the window
+        function positionUnhideColumnsSubmenu() {
+            const menuItem = document.getElementById('unhideColumnsMenuItem');
+            const submenu = document.getElementById('unhideColumnsSubmenu');
+            if (!menuItem || !submenu) return;
+
+            submenu.classList.remove('flip-left', 'flip-up');
+
+            // Measure off-screen so the flip decision doesn't depend on the hover state
+            const previousDisplay = submenu.style.display;
+            const previousVisibility = submenu.style.visibility;
+            submenu.style.visibility = 'hidden';
+            submenu.style.display = 'block';
+
+            const itemRect = menuItem.getBoundingClientRect();
+            const submenuWidth = submenu.offsetWidth;
+            const submenuHeight = submenu.offsetHeight;
+
+            submenu.style.display = previousDisplay;
+            submenu.style.visibility = previousVisibility;
+
+            if (itemRect.right + submenuWidth > window.innerWidth && itemRect.left - submenuWidth > 0) {
+                submenu.classList.add('flip-left');
+            }
+            if (itemRect.top + submenuHeight > window.innerHeight && itemRect.bottom - submenuHeight > 0) {
+                submenu.classList.add('flip-up');
+            }
+        }
+
         function showContextMenu(event, columnPath) {
             event.preventDefault();
-            contextMenuColumn = columnPath;
-            
+            contextMenuColumn = columnPath || null;
+
             const menu = document.getElementById('contextMenu');
             const unstringifyMenuItem = document.getElementById('unstringifyMenuItem');
-            
+
+            const hasHiddenColumns = populateUnhideColumnsMenu();
+
+            // Column-specific entries only make sense when a data column was right-clicked
+            // (the row-number header opens the same menu just to reach the unhide list)
+            menu.querySelectorAll('.column-only').forEach(element => {
+                element.style.display = contextMenuColumn ? 'block' : 'none';
+            });
+
             // Check if this column contains stringified JSON
-            const hasStringifiedJson = checkColumnForStringifiedJson(columnPath);
+            const hasStringifiedJson = contextMenuColumn ? checkColumnForStringifiedJson(contextMenuColumn) : false;
             unstringifyMenuItem.style.display = hasStringifiedJson ? 'block' : 'none';
-            
+
+            if (!contextMenuColumn && !hasHiddenColumns) {
+                hideContextMenu();
+                return;
+            }
+
             menu.style.display = 'block';
             menu.style.left = event.pageX + 'px';
             menu.style.top = event.pageY + 'px';
+
+            // Keep the menu inside the window now that its height varies with the unhide entry
+            const menuRect = menu.getBoundingClientRect();
+            if (menuRect.right > window.innerWidth) {
+                menu.style.left = Math.max(0, event.pageX - menuRect.width) + 'px';
+            }
+            if (menuRect.bottom > window.innerHeight) {
+                menu.style.top = Math.max(0, event.pageY - menuRect.height) + 'px';
+            }
+
+            positionUnhideColumnsSubmenu();
         }
-        
+
         function checkColumnForStringifiedJson(columnPath) {
             // Check a sample of rows to see if they contain stringified JSON
             const sampleSize = Math.min(20, currentData.rows.length);
@@ -1960,14 +2086,38 @@ export const scripts = `
         
         function hideContextMenu() {
             document.getElementById('contextMenu').style.display = 'none';
+            document.getElementById('unhideColumnsMenuItem')?.classList.remove('submenu-open');
             document.getElementById('rowContextMenu').style.display = 'none';
             contextMenuColumn = null;
             contextMenuRow = null;
         }
         
         function handleContextMenu(event) {
-            const action = event.target.closest('.context-menu-item')?.dataset.action;
-            if (!action || !contextMenuColumn) return;
+            const item = event.target.closest('.context-menu-item');
+            const action = item?.dataset.action;
+            if (!action) return;
+
+            // Unhide entries work without a right-clicked column
+            switch (action) {
+                case 'unhideColumns':
+                    // Parent of the submenu: toggle it (for click/touch) and keep the menu open
+                    item.classList.toggle('submenu-open');
+                    positionUnhideColumnsSubmenu();
+                    return;
+                case 'unhideColumn':
+                    vscode.postMessage({
+                        type: 'showColumns',
+                        columnPaths: [item.dataset.columnPath]
+                    });
+                    hideContextMenu();
+                    return;
+                case 'unhideAllColumns':
+                    vscode.postMessage({ type: 'showColumns' });
+                    hideContextMenu();
+                    return;
+            }
+
+            if (!contextMenuColumn) return;
 
             switch (action) {
                 case 'hideColumn':
@@ -2385,6 +2535,9 @@ export const scripts = `
             rowNumHeader.style.minWidth = '40px';
             rowNumHeader.style.textAlign = 'center';
             rowNumHeader.classList.add('row-header');
+            rowNumHeader.title = 'Right-click to unhide columns';
+            // Entry point for unhiding columns that still works when every column is hidden
+            rowNumHeader.addEventListener('contextmenu', (e) => showContextMenu(e, null));
             headerRow.appendChild(rowNumHeader);
 
             // Data columns
@@ -4005,6 +4158,7 @@ export const scripts = `
         // Add event listeners for context menus
         document.getElementById('contextMenu').addEventListener('click', handleContextMenu);
         document.getElementById('rowContextMenu').addEventListener('click', handleRowContextMenu);
+        document.getElementById('unhideColumnsMenuItem').addEventListener('mouseenter', positionUnhideColumnsSubmenu);
         
         // Hide context menus when clicking outside
         document.addEventListener('click', (e) => {
