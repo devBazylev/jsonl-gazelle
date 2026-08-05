@@ -26,23 +26,25 @@ export const styles = `
             overflow: hidden;
         }
         
+        .logo-container {
+            margin-right: 6px;
+        }
+
         .logo {
             width: 32px;
             height: 32px;
-            margin-right: 10px;
         }
-        
+
         .logo.loading {
             animation: spin 2s linear infinite;
         }
-        
+
         .loading-state {
             display: flex;
             align-items: center;
             gap: 10px;
-            flex: 1;
-            justify-content: center;
-            font-size: 14px;
+            font-size: 13px;
+            white-space: nowrap;
             color: var(--vscode-descriptionForeground);
         }
         

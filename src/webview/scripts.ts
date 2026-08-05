@@ -2208,6 +2208,7 @@ export const scripts = `
                 const logoAnimation = document.getElementById('logoAnimation');
                 if (logoAnimation) logoAnimation.style.display = 'block';
                 loadingState.style.display = 'flex';
+                document.getElementById('loadingLabel').textContent = 'Loading large file...';
                 
                 // Don't show the indexing div since we have header loading state
                 document.getElementById('indexingDiv').style.display = 'none';
@@ -2306,6 +2307,7 @@ export const scripts = `
                 logo.style.display = 'none';
                 if (logoAnimation) logoAnimation.style.display = 'block';
                 loadingState.style.display = 'flex';
+                document.getElementById('loadingLabel').textContent = 'Loading large file...';
 
                 const memoryInfo = loadingProgress.memoryOptimized ?
                     \`<div style="font-size: 11px; color: var(--vscode-warningForeground); margin-top: 5px;">
@@ -3594,7 +3596,8 @@ export const scripts = `
             logo.style.display = 'none';
             if (logoAnimation) logoAnimation.style.display = 'block';
             loadingState.style.display = 'flex';
-            loadingState.innerHTML = '<div>Switching view...</div>';
+            document.getElementById('loadingLabel').textContent = 'Switching view...';
+            document.getElementById('loadingProgress').innerHTML = '';
             
             // Hide search container during view switch
             
