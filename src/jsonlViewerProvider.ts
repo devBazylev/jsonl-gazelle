@@ -876,10 +876,13 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     }
 
     // Detected types keyed by column path, for the visible columns only.
-    // Skipped while the file is still indexing, when the sample would be partial.
+    // Skipped while rows are still arriving: the row count changes on every
+    // progress update, which would invalidate the cache and re-sample every
+    // visible column each time - real cost on the loading path, for a menu hint
+    // that would be based on a partial file anyway. The final update fills it in.
     private getVisibleColumnTypes(): { [path: string]: ColumnType } {
         const types: { [path: string]: ColumnType } = {};
-        if (this.isIndexing || this.rows.length === 0) {
+        if (this.isIndexing || this.loadingChunks || this.rows.length === 0) {
             return types;
         }
         (this.columns || []).forEach(column => {

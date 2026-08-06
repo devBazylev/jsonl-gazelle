@@ -3148,7 +3148,12 @@ export const scripts = `
 
             pendingSortJumpWatch = {
                 actualRowIndex: actualRowIndex,
-                previousPosition: previousPosition
+                previousPosition: previousPosition,
+                // The sort this position was measured under. If it changes before
+                // the update lands, the row moved because of the re-sort, not the
+                // edit, and the notice would be misleading.
+                columnPath: displaySort.columnPath,
+                direction: displaySort.direction
             };
         }
 
@@ -3158,6 +3163,15 @@ export const scripts = `
             const watch = pendingSortJumpWatch;
             if (!watch) return;
             pendingSortJumpWatch = null;
+
+            // Only report movement caused by the edit itself: if the sort was
+            // cleared or changed in the meantime, any movement is down to that
+            const displaySort = currentData.displaySort;
+            if (!displaySort ||
+                displaySort.columnPath !== watch.columnPath ||
+                displaySort.direction !== watch.direction) {
+                return;
+            }
 
             const newPosition = (currentData.rowIndices || []).indexOf(watch.actualRowIndex);
             if (newPosition === -1 || newPosition === watch.previousPosition) return;
@@ -3170,7 +3184,9 @@ export const scripts = `
             // file line - otherwise "row 1 moved to row 1" reads as nonsense
             text.textContent = 'Edited row (file line ' + (watch.actualRowIndex + 1) + ') moved from #' +
                 (watch.previousPosition + 1) + ' to #' + (newPosition + 1) + ' in the sorted view.';
-            notice.dataset.targetPosition = String(newPosition);
+            // Track the row, not the position: another update may reorder the
+            // view again before the user clicks, so resolve the position then
+            notice.dataset.targetRow = String(watch.actualRowIndex);
             notice.style.display = 'flex';
 
             if (sortJumpNoticeTimeout) clearTimeout(sortJumpNoticeTimeout);
@@ -4428,9 +4444,12 @@ export const scripts = `
         
         // "Row moved" notice: follow the row, or dismiss the notice
         document.getElementById('sortJumpGoBtn').addEventListener('click', () => {
-            const position = parseInt(document.getElementById('sortJumpNotice').dataset.targetPosition, 10);
+            const actualRowIndex = parseInt(document.getElementById('sortJumpNotice').dataset.targetRow, 10);
             hideSortJumpNotice();
-            if (!isNaN(position)) {
+            if (isNaN(actualRowIndex)) return;
+
+            const position = (currentData.rowIndices || []).indexOf(actualRowIndex);
+            if (position !== -1) {
                 jumpToDisplayRow(position);
             }
         });

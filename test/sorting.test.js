@@ -235,6 +235,19 @@ assert.deepStrictEqual(
     [2, 0]
 );
 
+// Sorting must never reorder its inputs in place. The display sort is handed
+// the provider's own rows/indices arrays, so an in-place sort would silently
+// reorder the file's in-memory representation and corrupt what gets written.
+const sourceRows = [{ n: 30, id: 'a' }, { n: 10, id: 'b' }, { n: 20, id: 'c' }];
+const sourceIndices = [0, 1, 2];
+const sorted = sortRowsWithIndices(sourceRows, sourceIndices, 'n', 'asc');
+assert.deepStrictEqual(sourceRows.map(row => row.id), ['a', 'b', 'c'], 'input rows must not be reordered');
+assert.deepStrictEqual(sourceIndices, [0, 1, 2], 'input indices must not be reordered');
+assert.notStrictEqual(sorted.sortedRows, sourceRows);
+assert.notStrictEqual(sorted.sortedIndices, sourceIndices);
+sortRows(sourceRows, 'n', 'desc');
+assert.deepStrictEqual(sourceRows.map(row => row.id), ['a', 'b', 'c'], 'sortRows must not reorder its input');
+
 // Degenerate inputs
 assert.deepStrictEqual(sortRowsWithIndices([], [], 'n', 'asc').sortedRows, []);
 assert.deepStrictEqual(sortRows([{ a: 1 }], 'missing.path', 'asc'), [{ a: 1 }]);
