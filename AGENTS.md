@@ -22,6 +22,7 @@ JSONL Gazelle is a VS Code extension that registers a **custom text editor** (`j
 | `src/jsonl/columns.ts` | `getUnhideableColumns()` — which hidden columns the "Unhide Column" menu may offer (mirrored in `scripts.ts`). |
 | `test/` | Plain Node test scripts (no framework), run by `npm test`. |
 | `test-data/` | Sample JSONL files plus `generate-large.js` for a ~64 MB stress file. |
+| `tools/screenshots/` | Regenerates the README's `jsonl-gazelle-*.jpg` screenshots from the real webview code via headless Chromium (see its own README.md). Dev-only, excluded from the `.vsix`. |
 
 There is **no bundler for the webview**: `getHtmlForWebview()` stitches `template.ts` + `styles.ts` + `scripts.ts` into a single HTML string. The Monaco editor (used for Raw and Pretty Print views) is loaded at runtime from `https://cdn.jsdelivr.net`.
 
