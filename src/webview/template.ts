@@ -127,8 +127,46 @@ ${styles}
             </div>
         </div>
     </div>
-    
+
+    <!-- Non-modal notice shown when re-sorting moves the row that was just edited -->
+    <div class="sort-jump-notice" id="sortJumpNotice" style="display: none;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+        <span id="sortJumpNoticeText"></span>
+        <button class="sort-jump-btn" id="sortJumpGoBtn">Jump to row</button>
+        <button class="sort-jump-close" id="sortJumpCloseBtn" title="Dismiss">✕</button>
+    </div>
+
     <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item has-submenu column-only" data-action="sortMenu" id="sortMenuItem">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5h10"></path><path d="M11 9h7"></path><path d="M11 13h4"></path><path d="m3 17 4 4 4-4"></path><path d="M7 21V3"></path></svg>
+            <span>Sort</span>
+            <span class="submenu-arrow">›</span>
+            <div class="context-submenu" id="sortSubmenu">
+                <div class="context-menu-hint" id="sortTypeHint"></div>
+                <div class="context-menu-item" data-action="displaySortAsc" title="Sort the table view only - the file on disk is not changed">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"></path><path d="M7 20V4"></path><path d="M11 4h4"></path><path d="M11 8h7"></path><path d="M11 12h10"></path></svg>
+                    Display Sorted Ascending
+                </div>
+                <div class="context-menu-item" data-action="displaySortDesc" title="Sort the table view only - the file on disk is not changed">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"></path><path d="M7 20V4"></path><path d="M11 4h10"></path><path d="M11 8h7"></path><path d="M11 12h4"></path></svg>
+                    Display Sorted Descending
+                </div>
+                <div class="context-menu-item" data-action="clearDisplaySort" id="clearDisplaySortMenuItem" style="display: none;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    Clear Display Sort
+                </div>
+                <div class="context-menu-separator"></div>
+                <div class="context-menu-item" data-action="sortAsc" title="Reorder the rows in the file itself (undo with Ctrl/Cmd+Z)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"></path><path d="M7 20V4"></path><path d="M11 4h4"></path><path d="M11 8h7"></path><path d="M11 12h10"></path></svg>
+                    Sort Rows Ascending
+                </div>
+                <div class="context-menu-item" data-action="sortDesc" title="Reorder the rows in the file itself (undo with Ctrl/Cmd+Z)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"></path><path d="M7 20V4"></path><path d="M11 4h10"></path><path d="M11 8h7"></path><path d="M11 12h4"></path></svg>
+                    Sort Rows Descending
+                </div>
+            </div>
+        </div>
+        <div class="context-menu-separator column-only"></div>
         <div class="context-menu-item column-only" data-action="hideColumn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
             Hide Column

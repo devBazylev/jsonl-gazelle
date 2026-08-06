@@ -1,0 +1,10 @@
+{"item": "item10", "ordered_at": "2024-03-01T09:00:00Z", "price": "$1,200.00", "qty": 3, "shipped": true}
+{"item": "item2", "ordered_at": "2024-01-15T10:30:00Z", "price": "$99.00", "qty": 12, "shipped": false}
+{"item": "item1", "ordered_at": "2024-02-20T23:59:59Z", "price": "$450.50", "qty": -2, "shipped": true}
+{"item": "item21", "ordered_at": "2023-12-31", "price": "1.234,56 €", "qty": 0, "shipped": false}
+{"item": "item3", "ordered_at": "01/15/2024 10:30 PM", "price": "USD 75", "qty": 7, "shipped": true}
+{"item": "item100", "ordered_at": "15 Jan 2024", "price": "($42.00)", "qty": 1, "shipped": false}
+{"item": "item4", "ordered_at": 1705315800, "price": "£0.99", "qty": 250, "shipped": true}
+{"item": "item5", "ordered_at": "2024-06-01 08:15:00", "price": "¥1200", "qty": 18, "shipped": false}
+{"item": "item6", "ordered_at": null, "price": "", "qty": null, "shipped": true}
+{"item": "item7", "price": "n/a", "qty": 42, "shipped": false}

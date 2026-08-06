@@ -228,6 +228,118 @@ export const styles = `
             margin: 5px 0;
         }
 
+        /* Non-interactive line naming the column's detected sort type */
+        .context-menu-hint {
+            padding: 3px 15px 5px;
+            font-size: 0.85em;
+            opacity: 0.7;
+            color: var(--vscode-menu-foreground);
+            cursor: default;
+            white-space: nowrap;
+        }
+
+        /* Count of hidden columns, shown on the row-number header */
+        .hidden-columns-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            margin-left: 4px;
+            padding: 1px 4px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 10px;
+            font-family: inherit;
+            line-height: 1.4;
+            vertical-align: middle;
+            background-color: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+        }
+
+        .hidden-columns-badge:hover {
+            filter: brightness(1.25);
+        }
+
+        /* Non-modal notice: the edited row moved because the view is sorted */
+        .sort-jump-notice {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            z-index: 1200;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            max-width: min(420px, calc(100vw - 32px));
+            padding: 8px 10px;
+            font-size: 12px;
+            border: 1px solid var(--vscode-notifications-border, var(--vscode-panel-border));
+            border-radius: 4px;
+            background-color: var(--vscode-notifications-background, var(--vscode-editorWidget-background));
+            color: var(--vscode-notifications-foreground, var(--vscode-foreground));
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+        }
+
+        .sort-jump-notice > svg {
+            flex-shrink: 0;
+            opacity: 0.8;
+        }
+
+        .sort-jump-notice > span {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sort-jump-btn {
+            flex-shrink: 0;
+            padding: 3px 10px;
+            border: none;
+            border-radius: 2px;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: inherit;
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+
+        .sort-jump-btn:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+
+        .sort-jump-close {
+            flex-shrink: 0;
+            padding: 2px 4px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 12px;
+            line-height: 1;
+            opacity: 0.7;
+            color: inherit;
+        }
+
+        .sort-jump-close:hover {
+            opacity: 1;
+        }
+
+        /* Brief highlight on the row jumped to, so it's findable after scrolling */
+        tr.row-flash td {
+            animation: rowFlash 1.6s ease-out;
+        }
+
+        @keyframes rowFlash {
+            from { background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(255, 200, 0, 0.5)); }
+            to { background-color: transparent; }
+        }
+
+        /* Arrow marking the column the table is currently display-sorted by */
+        .sort-indicator {
+            display: inline-block;
+            margin-left: 4px;
+            font-size: 0.85em;
+            opacity: 0.9;
+            vertical-align: middle;
+        }
+
         .context-menu-item.has-submenu {
             position: relative;
             padding-right: 28px;

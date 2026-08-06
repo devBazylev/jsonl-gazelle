@@ -2,6 +2,8 @@
  * Webview JavaScript code
  */
 
+import { COLUMN_TYPE_LABELS } from '../jsonl/sorting';
+
 export const scripts = `
         const vscode = acquireVsCodeApi();
         
@@ -19,12 +21,22 @@ export const scripts = `
             parsedLines: [],
             rawContent: '',
             errorCount: 0,
+            displaySort: null, // { columnPath, direction } while the view is sorted
+            columnTypes: {}, // Detected value type per column path
             uiPreferences: {
                 lastView: 'table',
                 wrapText: false
             }
         };
-        
+
+        // Shared with the extension host's sort type detection
+        const SORT_TYPE_LABELS = ${JSON.stringify(COLUMN_TYPE_LABELS)};
+
+        // Set when a cell edit is expected to move its row under the active
+        // display sort; consumed by the next table rebuild (see checkSortJump)
+        let pendingSortJumpWatch = null;
+        let sortJumpNoticeTimeout = null;
+
         let contextMenuColumn = null;
         let uiPreferencesApplied = false;
         let prettyEditorModified = false; // Whether the user edited in pretty print view
@@ -1999,10 +2011,36 @@ export const scripts = `
             return true;
         }
 
+        // Open the column menu straight onto its unhide list. Used by the badge on
+        // the row-number header, so unhiding is reachable by left-click and not
+        // only by knowing to right-click.
+        function openUnhideColumnsMenu(event) {
+            event.preventDefault();
+            // The document-level handler closes the menu on any outside click,
+            // and this button sits outside it
+            event.stopPropagation();
+
+            showContextMenu(event, null);
+
+            const menuItem = document.getElementById('unhideColumnsMenuItem');
+            if (!menuItem || menuItem.style.display === 'none') return;
+
+            menuItem.classList.add('submenu-open');
+            positionUnhideColumnsSubmenu();
+        }
+
         // Flip the submenu when it would run past the right or bottom edge of the window
         function positionUnhideColumnsSubmenu() {
-            const menuItem = document.getElementById('unhideColumnsMenuItem');
-            const submenu = document.getElementById('unhideColumnsSubmenu');
+            positionSubmenu('unhideColumnsMenuItem', 'unhideColumnsSubmenu');
+        }
+
+        function positionSortSubmenu() {
+            positionSubmenu('sortMenuItem', 'sortSubmenu');
+        }
+
+        function positionSubmenu(menuItemId, submenuId) {
+            const menuItem = document.getElementById(menuItemId);
+            const submenu = document.getElementById(submenuId);
             if (!menuItem || !submenu) return;
 
             submenu.classList.remove('flip-left', 'flip-up');
@@ -2046,6 +2084,25 @@ export const scripts = `
             // Check if this column contains stringified JSON
             const hasStringifiedJson = contextMenuColumn ? checkColumnForStringifiedJson(contextMenuColumn) : false;
             unstringifyMenuItem.style.display = hasStringifiedJson ? 'block' : 'none';
+
+            if (contextMenuColumn) {
+                // Tell the user how this column's values will be compared. Stays
+                // hidden until detection has run, rather than guessing a type.
+                const sortTypeHint = document.getElementById('sortTypeHint');
+                if (sortTypeHint) {
+                    const detectedType = currentData.columnTypes && currentData.columnTypes[contextMenuColumn];
+                    sortTypeHint.textContent = detectedType
+                        ? 'Sorts as: ' + (SORT_TYPE_LABELS[detectedType] || detectedType)
+                        : '';
+                    sortTypeHint.style.display = detectedType ? 'block' : 'none';
+                }
+
+                // Clearing is only meaningful while a column is display-sorted
+                const clearDisplaySortMenuItem = document.getElementById('clearDisplaySortMenuItem');
+                if (clearDisplaySortMenuItem) {
+                    clearDisplaySortMenuItem.style.display = currentData.displaySort ? 'block' : 'none';
+                }
+            }
 
             if (!contextMenuColumn && !hasHiddenColumns) {
                 hideContextMenu();
@@ -2091,9 +2148,21 @@ export const scripts = `
                    (trimmed.endsWith(']') || trimmed.endsWith('}'));
         }
         
+        // Display-only sort. The extension permutes the rows it sends back, so
+        // the table just re-renders; the file on disk is untouched.
+        function setDisplaySort(columnPath, direction) {
+            hideSortJumpNotice(); // Positions in it refer to the old ordering
+            vscode.postMessage({
+                type: 'setDisplaySort',
+                columnPath: columnPath,
+                direction: direction
+            });
+        }
+
         function hideContextMenu() {
             document.getElementById('contextMenu').style.display = 'none';
             document.getElementById('unhideColumnsMenuItem')?.classList.remove('submenu-open');
+            document.getElementById('sortMenuItem')?.classList.remove('submenu-open');
             document.getElementById('rowContextMenu').style.display = 'none';
             contextMenuColumn = null;
             contextMenuRow = null;
@@ -2127,6 +2196,34 @@ export const scripts = `
             if (!contextMenuColumn) return;
 
             switch (action) {
+                case 'sortMenu':
+                    // Parent of the sort submenu: toggle it and keep the menu open
+                    item.classList.toggle('submenu-open');
+                    positionSortSubmenu();
+                    return;
+                case 'displaySortAsc':
+                    setDisplaySort(contextMenuColumn, 'asc');
+                    break;
+                case 'displaySortDesc':
+                    setDisplaySort(contextMenuColumn, 'desc');
+                    break;
+                case 'clearDisplaySort':
+                    setDisplaySort(null, null);
+                    break;
+                case 'sortAsc':
+                    vscode.postMessage({
+                        type: 'sortRows',
+                        columnPath: contextMenuColumn,
+                        direction: 'asc'
+                    });
+                    break;
+                case 'sortDesc':
+                    vscode.postMessage({
+                        type: 'sortRows',
+                        columnPath: contextMenuColumn,
+                        direction: 'desc'
+                    });
+                    break;
                 case 'hideColumn':
                     vscode.postMessage({
                         type: 'toggleColumnVisibility',
@@ -2620,22 +2717,44 @@ export const scripts = `
             
             const headerRow = document.createElement('tr');
 
+            const hiddenColumns = getUnhideableColumns(data.columns);
+            // The row-number column needs room for the hidden-columns badge
+            const rowNumWidth = hiddenColumns.length > 0 ? '72px' : '40px';
+
             // Add col for row number column
             if (colgroup) {
                 const col = document.createElement('col');
-                col.style.width = '40px';
+                col.style.width = rowNumWidth;
                 colgroup.appendChild(col);
             }
 
             // Add row number header
             const rowNumHeader = document.createElement('th');
             rowNumHeader.textContent = '#';
-            rowNumHeader.style.minWidth = '40px';
+            rowNumHeader.style.minWidth = rowNumWidth;
             rowNumHeader.style.textAlign = 'center';
             rowNumHeader.classList.add('row-header');
             rowNumHeader.title = 'Right-click to unhide columns';
             // Entry point for unhiding columns that still works when every column is hidden
             rowNumHeader.addEventListener('contextmenu', (e) => showContextMenu(e, null));
+
+            // Hidden columns are otherwise invisible - the only hint they exist is
+            // a gap in the header. Surface a count here, and make it the shortcut
+            // to the same unhide menu the right-click opens.
+            if (hiddenColumns.length > 0) {
+                const hiddenBadge = document.createElement('button');
+                hiddenBadge.className = 'hidden-columns-badge';
+                hiddenBadge.title = hiddenColumns.length === 1
+                    ? '1 hidden column - click to unhide'
+                    : hiddenColumns.length + ' hidden columns - click to unhide';
+                hiddenBadge.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+                const count = document.createElement('span');
+                count.textContent = String(hiddenColumns.length);
+                hiddenBadge.appendChild(count);
+                hiddenBadge.addEventListener('click', openUnhideColumnsMenu);
+                rowNumHeader.appendChild(hiddenBadge);
+            }
+
             headerRow.appendChild(rowNumHeader);
 
             // Data columns
@@ -2715,6 +2834,17 @@ export const scripts = `
                 }
 
                 th.appendChild(headerContent);
+
+                // Mark the column the view is currently sorted by. Sits outside
+                // headerContent so a long column name can't ellipsize it away.
+                const displaySort = data.displaySort;
+                if (displaySort && displaySort.columnPath === column.path) {
+                    const indicator = document.createElement('span');
+                    indicator.className = 'sort-indicator';
+                    indicator.textContent = displaySort.direction === 'desc' ? '▼' : '▲';
+                    indicator.title = 'Display sorted ' + (displaySort.direction === 'desc' ? 'descending' : 'ascending');
+                    th.appendChild(indicator);
+                }
 
                 const resizeHandle = document.createElement('div');
                 resizeHandle.className = 'resize-handle';
@@ -2852,6 +2982,7 @@ export const scripts = `
 
         function handleRowDrop(e) {
             e.preventDefault();
+            if (currentData.displaySort) return; // Visual order != file order
             const targetTr = e.target.closest('tr');
             if (!targetTr || targetTr === draggedRow) return;
             const fromIndex = parseInt(draggedRow.dataset.actualIndex, 10);
@@ -2900,8 +3031,10 @@ export const scripts = `
             rowNumCell.addEventListener('contextmenu', (e) => showRowContextMenu(e, rowIndex));
             tr.appendChild(rowNumCell);
 
-            // Row drag and drop for reordering
-            tr.draggable = true;
+            // Row drag and drop for reordering. Disabled while the view is
+            // display-sorted: dropping a row would move it to the target's
+            // position in the file, which is not where it appears on screen.
+            tr.draggable = !currentData.displaySort;
             tr.addEventListener('dragstart', handleRowDragStart);
             tr.addEventListener('dragend', handleRowDragEnd);
             tr.addEventListener('dragover', handleRowDragOver);
@@ -3028,6 +3161,7 @@ export const scripts = `
             } else if (prevScroll > 0) {
                 restoreTableScroll(prevScroll);
             }
+            checkSortJump();
         }
 
         // Render enough chunks to make the saved scroll offset reachable, then
@@ -3053,6 +3187,105 @@ export const scripts = `
                 renderTableChunk();
             }
             tableContainer.scrollTop = targetScroll;
+        }
+
+        // Editing the sorted column can move the row out from under the user.
+        // Remember where it was so the next rebuild can tell them where it went.
+        function watchSortJump(actualRowIndex, columnPath) {
+            const displaySort = currentData.displaySort;
+            // Only the sorted column can change a row's position: the sort is
+            // stable, so edits to any other column leave the order alone
+            if (!displaySort || displaySort.columnPath !== columnPath) return;
+
+            const previousPosition = (currentData.rowIndices || []).indexOf(actualRowIndex);
+            if (previousPosition === -1) return;
+
+            pendingSortJumpWatch = {
+                actualRowIndex: actualRowIndex,
+                previousPosition: previousPosition,
+                // The sort this position was measured under. If it changes before
+                // the update lands, the row moved because of the re-sort, not the
+                // edit, and the notice would be misleading.
+                columnPath: displaySort.columnPath,
+                direction: displaySort.direction
+            };
+        }
+
+        // Runs after a rebuild: if the watched row landed somewhere else, offer a
+        // non-modal way to follow it rather than silently moving it
+        function checkSortJump() {
+            const watch = pendingSortJumpWatch;
+            if (!watch) return;
+            pendingSortJumpWatch = null;
+
+            // Only report movement caused by the edit itself: if the sort was
+            // cleared or changed in the meantime, any movement is down to that
+            const displaySort = currentData.displaySort;
+            if (!displaySort ||
+                displaySort.columnPath !== watch.columnPath ||
+                displaySort.direction !== watch.direction) {
+                return;
+            }
+
+            const newPosition = (currentData.rowIndices || []).indexOf(watch.actualRowIndex);
+            if (newPosition === -1 || newPosition === watch.previousPosition) return;
+
+            const notice = document.getElementById('sortJumpNotice');
+            const text = document.getElementById('sortJumpNoticeText');
+            if (!notice || !text) return;
+
+            // The # column shows the display position, so name both that and the
+            // file line - otherwise "row 1 moved to row 1" reads as nonsense
+            text.textContent = 'Edited row (file line ' + (watch.actualRowIndex + 1) + ') moved from #' +
+                (watch.previousPosition + 1) + ' to #' + (newPosition + 1) + ' in the sorted view.';
+            // Track the row, not the position: another update may reorder the
+            // view again before the user clicks, so resolve the position then
+            notice.dataset.targetRow = String(watch.actualRowIndex);
+            notice.style.display = 'flex';
+
+            if (sortJumpNoticeTimeout) clearTimeout(sortJumpNoticeTimeout);
+            sortJumpNoticeTimeout = setTimeout(hideSortJumpNotice, 12000);
+        }
+
+        function hideSortJumpNotice() {
+            const notice = document.getElementById('sortJumpNotice');
+            if (notice) notice.style.display = 'none';
+            if (sortJumpNoticeTimeout) {
+                clearTimeout(sortJumpNoticeTimeout);
+                sortJumpNoticeTimeout = null;
+            }
+        }
+
+        // Scroll a row of the current (possibly sorted) view into view and flash it
+        function jumpToDisplayRow(position) {
+            if (currentView !== 'table') {
+                switchView('table', false);
+            }
+
+            const tbody = document.getElementById('tableBody');
+            if (!tbody || position < 0) return;
+
+            // The table body renders lazily in chunks - render up to the target
+            let guard = 0;
+            while (tableRenderState.renderedRows <= position &&
+                   tableRenderState.renderedRows < tableRenderState.totalRows &&
+                   guard++ < 10000) {
+                renderTableChunk();
+            }
+
+            const tr = tbody.children[position];
+            if (!tr) return;
+
+            tr.scrollIntoView({ block: 'center' });
+
+            document.querySelectorAll('#tableBody tr.selected').forEach(row => row.classList.remove('selected'));
+            tr.classList.add('selected');
+            selectedRowActualIndex = parseInt(tr.dataset.actualIndex, 10);
+
+            // Restart the flash even if the row still carries the class
+            tr.classList.remove('row-flash');
+            void tr.offsetWidth;
+            tr.classList.add('row-flash');
         }
 
         // Apply an update that was deferred because a cell edit was in progress
@@ -3646,7 +3879,10 @@ export const scripts = `
                 td.title = newValue;
                 // Keep the raw value in sync so Find/Replace sees the edit immediately
                 td.dataset.rawValue = newValue;
-                
+
+                // A sorted view may reorder around this edit - track where it goes
+                watchSortJump(rowIndex, columnPath);
+
                 // Send update message
                 vscode.postMessage({
                     type: 'updateCell',
@@ -4260,10 +4496,24 @@ export const scripts = `
             button.addEventListener('click', (e) => switchView(e.currentTarget.dataset.view));
         });
         
+        // "Row moved" notice: follow the row, or dismiss the notice
+        document.getElementById('sortJumpGoBtn').addEventListener('click', () => {
+            const actualRowIndex = parseInt(document.getElementById('sortJumpNotice').dataset.targetRow, 10);
+            hideSortJumpNotice();
+            if (isNaN(actualRowIndex)) return;
+
+            const position = (currentData.rowIndices || []).indexOf(actualRowIndex);
+            if (position !== -1) {
+                jumpToDisplayRow(position);
+            }
+        });
+        document.getElementById('sortJumpCloseBtn').addEventListener('click', hideSortJumpNotice);
+
         // Add event listeners for context menus
         document.getElementById('contextMenu').addEventListener('click', handleContextMenu);
         document.getElementById('rowContextMenu').addEventListener('click', handleRowContextMenu);
         document.getElementById('unhideColumnsMenuItem').addEventListener('mouseenter', positionUnhideColumnsSubmenu);
+        document.getElementById('sortMenuItem').addEventListener('mouseenter', positionSortSubmenu);
         
         // Hide context menus when clicking outside
         document.addEventListener('click', (e) => {
