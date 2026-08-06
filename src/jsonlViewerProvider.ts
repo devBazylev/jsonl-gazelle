@@ -3,6 +3,7 @@ import * as path from 'path';
 import { JsonRow, ParsedLine, ColumnInfo } from './jsonl/types';
 import * as utils from './jsonl/utils';
 import { filterRowsWithIndices } from './jsonl/rowMapping';
+import { ColumnType, SortDirection, detectColumnType, sortRows, sortRowsWithIndices } from './jsonl/sorting';
 import { getHtmlTemplate } from './webview/template';
 import { styles } from './webview/styles';
 import { scripts } from './webview/scripts';
@@ -26,6 +27,13 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     private filteredRowIndices: number[] = [];
     private columns: ColumnInfo[] = [];
     private searchTerm: string = '';
+    // Display-only sort: reorders what the table shows without touching the file.
+    // filteredRowIndices is permuted alongside filteredRows, so every edit path
+    // keeps pointing at the right line.
+    private displaySort: { columnPath: string; direction: SortDirection } | null = null;
+    // Detected column types, recomputed when the row count changes
+    private columnTypeCache: Map<string, ColumnType> = new Map();
+    private columnTypeCacheRowCount: number = -1;
     private isIndexing: boolean = false;
     private parsedLines: ParsedLine[] = [];
     private rawContent: string = '';
@@ -91,6 +99,12 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             if (this.pendingSaveTimeout) {
                 clearTimeout(this.pendingSaveTimeout);
                 this.pendingSaveTimeout = null;
+            }
+
+            // Display sort belongs to the file it was applied to
+            if (this.activeDocumentUri !== document.uri.toString()) {
+                this.displaySort = null;
+                this.invalidateColumnTypes();
             }
 
             this.activeDocumentUri = document.uri.toString();
@@ -183,6 +197,12 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                                 break;
                             case 'reorderRows':
                                 await this.handleReorderRows(message.fromIndex, message.toIndex, webviewPanel, document);
+                                break;
+                            case 'setDisplaySort':
+                                this.setDisplaySort(message.columnPath, message.direction, webviewPanel);
+                                break;
+                            case 'sortRows':
+                                await this.handleSortRows(message.columnPath, message.direction, webviewPanel, document);
                                 break;
                             case 'toggleColumnVisibility':
                                 this.toggleColumnVisibility(message.columnPath, document);
@@ -421,6 +441,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             this.errorCount = 0;
             this.pathCounts = {};
             this.memoryOptimized = false;
+            this.invalidateColumnTypes();
             this.lastSentRowCount = 0;
             this.lastSentParsedLineCount = 0;
             this.webviewRowsSynced = false;
@@ -453,6 +474,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
 
             this.filteredRows = this.rows; // Point to same array for small files
             this.filteredRowIndices = this.rows.map((_, index) => index);
+            this.applyDisplaySort();
             this.isIndexing = false;
             
             if (this.currentWebviewPanel) {
@@ -488,6 +510,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
 
         this.filteredRows = this.rows; // Point to same array initially
         this.filteredRowIndices = this.rows.map((_, index) => index);
+        this.applyDisplaySort();
         this.isIndexing = false;
         // Mark background loading as active before the first update so the
         // progress banner shows from the start
@@ -533,9 +556,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
 
             // Update UI only every 10 chunks (much less frequent)
             if ((startIndex / this.CHUNK_SIZE) % 10 === 0 && this.currentWebviewPanel) {
-                if (this.searchTerm) {
-                    this.filteredRows = [...this.rows];
-                    this.filteredRowIndices = this.rows.map((_, index) => index);
+                if (this.searchTerm || this.displaySort) {
+                    // A search or display sort makes the webview's copy a
+                    // permutation of this.rows, so append deltas don't apply
+                    this.filterRows();
                     this.updateWebview(this.currentWebviewPanel);
                 } else {
                     this.filteredRows = this.rows;
@@ -561,7 +585,9 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
 
         // Final update
         if (this.currentWebviewPanel) {
-            if (!this.searchTerm) {
+            if (this.displaySort) {
+                this.filterRows();
+            } else if (!this.searchTerm) {
                 this.filteredRows = this.rows;
                 this.extendIdentityRowIndices();
             }
@@ -809,11 +835,71 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         const { filteredRows, filteredRowIndices } = filterRowsWithIndices(this.rows, this.searchTerm);
         this.filteredRows = filteredRows;
         this.filteredRowIndices = filteredRowIndices;
+        this.applyDisplaySort();
+    }
+
+    // Permute the visible rows (and their file indices) by the active display
+    // sort. No-op when nothing is sorted, so unsorted files keep sharing the
+    // this.rows array and stay eligible for append-only webview updates.
+    private applyDisplaySort() {
+        if (!this.displaySort || this.filteredRows.length === 0) {
+            return;
+        }
+        const { columnPath, direction } = this.displaySort;
+        const { sortedRows, sortedIndices } = sortRowsWithIndices(
+            this.filteredRows,
+            this.filteredRowIndices,
+            columnPath,
+            direction,
+            this.getColumnType(columnPath)
+        );
+        this.filteredRows = sortedRows;
+        this.filteredRowIndices = sortedIndices;
+    }
+
+    // Detected types keyed by column path, for the visible columns only.
+    // Skipped while the file is still indexing, when the sample would be partial.
+    private getVisibleColumnTypes(): { [path: string]: ColumnType } {
+        const types: { [path: string]: ColumnType } = {};
+        if (this.isIndexing || this.rows.length === 0) {
+            return types;
+        }
+        (this.columns || []).forEach(column => {
+            if (column.visible) {
+                types[column.path] = this.getColumnType(column.path);
+            }
+        });
+        return types;
+    }
+
+    private invalidateColumnTypes() {
+        this.columnTypeCache.clear();
+        this.columnTypeCacheRowCount = -1;
+    }
+
+    // Detected type for a column, cached until the row count changes
+    private getColumnType(columnPath: string): ColumnType {
+        if (this.columnTypeCacheRowCount !== this.rows.length) {
+            this.columnTypeCache.clear();
+            this.columnTypeCacheRowCount = this.rows.length;
+        }
+        const cached = this.columnTypeCache.get(columnPath);
+        if (cached) {
+            return cached;
+        }
+        const detected = detectColumnType(this.rows, columnPath);
+        this.columnTypeCache.set(columnPath, detected);
+        return detected;
     }
 
 
     private async removeColumn(columnPath: string, webviewPanel: vscode.WebviewPanel, document: vscode.TextDocument) {
         try {
+            // Sorting by a column that no longer exists would be a no-op anyway
+            if (this.displaySort && this.displaySort.columnPath === columnPath) {
+                this.displaySort = null;
+            }
+
             // Remove column from columns array
             this.columns = this.columns.filter(col => col.path !== columnPath);
             
@@ -2400,9 +2486,11 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                 }
                 
                 this.loadedLines = this.rows.length;
+                this.invalidateColumnTypes();
                 this.filteredRows = this.rows;
                 this.filteredRowIndices = this.rows.map((_, index) => index);
-                
+                this.applyDisplaySort();
+
                 // Update columns based on new data
                 this.updateColumns();
                 
@@ -2628,6 +2716,86 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         }
     }
 
+    // Display-only sort: reorders the table, leaves the file untouched
+    private setDisplaySort(columnPath: string | null, direction: SortDirection, webviewPanel: vscode.WebviewPanel) {
+        if (!columnPath || (direction !== 'asc' && direction !== 'desc')) {
+            this.displaySort = null;
+        } else {
+            this.displaySort = { columnPath, direction };
+        }
+
+        this.filterRows();
+        this.updateWebview(webviewPanel);
+    }
+
+    // Permanent sort: rewrites the document so the file itself is ordered
+    private async handleSortRows(columnPath: string, direction: SortDirection, webviewPanel: vscode.WebviewPanel, document: vscode.TextDocument) {
+        try {
+            if (!columnPath || (direction !== 'asc' && direction !== 'desc')) {
+                return;
+            }
+
+            // Each of these means this.rows is not the whole file. Rewriting the
+            // document from it would silently drop the rest, so refuse and point
+            // at the display-only sort, which is always safe.
+            if (this.isIndexing || this.loadingChunks) {
+                vscode.window.showWarningMessage(
+                    'JSONL Gazelle: the file is still loading. Wait for it to finish, or use "Display Sorted" to sort the view only.'
+                );
+                return;
+            }
+            if (this.memoryOptimized) {
+                vscode.window.showWarningMessage(
+                    'JSONL Gazelle: this file is too large to sort in place (only part of it is held in memory). Use "Display Sorted" to sort the view only.'
+                );
+                return;
+            }
+            if (this.errorCount > 0) {
+                vscode.window.showWarningMessage(
+                    `JSONL Gazelle: this file has ${this.errorCount} line(s) that could not be parsed, and sorting the file would discard them. Fix the errors first, or use "Display Sorted" to sort the view only.`
+                );
+                return;
+            }
+            if (this.rows.length < 2) {
+                return;
+            }
+
+            this.isUpdating = true;
+
+            this.rows = sortRows(this.rows, columnPath, direction, this.getColumnType(columnPath));
+
+            this.parsedLines = this.rows.map((row, index) => ({
+                data: row,
+                lineNumber: index + 1,
+                rawLine: JSON.stringify(row)
+            }));
+
+            // The file now carries the order itself; a display sort on top of it
+            // would be redundant
+            this.displaySort = null;
+            this.filterRows();
+            this.rawContent = this.rows.map(row => JSON.stringify(row)).join('\n');
+
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(
+                document.uri,
+                new vscode.Range(0, 0, document.lineCount, 0),
+                this.rawContent
+            );
+            await vscode.workspace.applyEdit(edit);
+
+            this.updateWebview(webviewPanel);
+        } catch (error) {
+            console.error('Error sorting rows:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage('Failed to sort rows: ' + errorMessage);
+        } finally {
+            setTimeout(() => {
+                this.isUpdating = false;
+            }, 100);
+        }
+    }
+
     private async handleCopyRow(rowIndex: number, webviewPanel: vscode.WebviewPanel) {
         try {
             if (rowIndex < 0 || rowIndex >= this.rows.length) {
@@ -2831,6 +2999,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                     // webview may keep its table DOM and scroll position
                     appendCompatible: options?.appendCompatible === true && unfiltered && this.webviewRowsSynced,
                     columns: this.columns || [],
+                    // Active display-only sort, so the header can show its arrow
+                    displaySort: this.displaySort,
+                    // Detected type per visible column, for the sort menu hint
+                    columnTypes: this.getVisibleColumnTypes(),
                     isIndexing: this.isIndexing,
                     searchTerm: this.searchTerm,
                     parsedLines: this.parsedLines || [],

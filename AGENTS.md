@@ -18,6 +18,7 @@ JSONL Gazelle is a VS Code extension that registers a **custom text editor** (`j
 | `src/jsonl/types.ts` | Shared interfaces (`JsonRow`, `ParsedLine`, `ColumnInfo`). |
 | `src/jsonl/utils.ts` | Pure helpers: nested get/set/delete by dot-path, pretty→JSONL conversion, stringified-JSON detection. |
 | `src/jsonl/rowMapping.ts` | Search filtering that preserves original row indices. |
+| `src/jsonl/sorting.ts` | Column sorting: value-type autodetection (timestamp/currency/number/boolean/text) and comparators that carry row indices along. |
 | `test/` | Plain Node test scripts (no framework), run by `npm test`. |
 | `test-data/` | Sample JSONL files plus `generate-large.js` for a ~64 MB stress file. |
 
@@ -53,7 +54,7 @@ Communication is `webview.postMessage` / `vscode.postMessage` with a `type` fiel
 
 **Webview → extension** (handled in the `onDidReceiveMessage` switch in `jsonlViewerProvider.ts`):
 
-`search`, `removeColumn`, `updateCell`, `expandColumn`, `collapseColumn`, `openUrl`, `documentChanged`, `rawContentChanged`, `rawContentSave`, `prettyContentChanged`, `prettyContentSave`, `forceSave`, `unstringifyColumn`, `deleteRow`, `insertRow`, `copyRow`, `duplicateRow`, `pasteRow`, `validateClipboard`, `reorderColumns`, `reorderRows`, `toggleColumnVisibility`, `addColumn`, `addAIColumn`, `getSettings`, `getRecentEnumValues`, `checkAPIKey`, `showAPIKeyWarning`, `saveSettings`, `resetSettings`, `generateAIRows`, `requestColumnSuggestions`, `refresh`, `requestFullUpdate`, `setFollowMode`, `setViewPreference`, `setWrapTextPreference`
+`search`, `removeColumn`, `updateCell`, `expandColumn`, `collapseColumn`, `openUrl`, `documentChanged`, `rawContentChanged`, `rawContentSave`, `prettyContentChanged`, `prettyContentSave`, `forceSave`, `unstringifyColumn`, `deleteRow`, `insertRow`, `copyRow`, `duplicateRow`, `pasteRow`, `validateClipboard`, `reorderColumns`, `reorderRows`, `setDisplaySort`, `sortRows`, `toggleColumnVisibility`, `addColumn`, `addAIColumn`, `getSettings`, `getRecentEnumValues`, `checkAPIKey`, `showAPIKeyWarning`, `saveSettings`, `resetSettings`, `generateAIRows`, `requestColumnSuggestions`, `refresh`, `requestFullUpdate`, `setFollowMode`, `setViewPreference`, `setWrapTextPreference`
 
 **Extension → webview**:
 
@@ -111,3 +112,4 @@ The webview cannot read VS Code configuration directly — anything the webview 
 - **One provider instance** serves all editors; per-document state (e.g. `activeDocumentUri`, `manualColumnsPerFile`) is keyed or reset in `resolveCustomTextEditor`.
 - **Template-literal sources**: `scripts.ts`/`styles.ts`/`template.ts` are TypeScript files exporting giant strings — ESLint lints the TS wrapper, not the embedded JS/CSS. Backticks and `${}` inside them must be escaped.
 - **Search filtering** produces `filteredRows` + `filteredRowIndices`; webview row handlers must distinguish the filtered index (`dataset.index`) from the real file index (`dataset.actualIndex`).
+- **Two kinds of sort.** `setDisplaySort` is display-only: `filterRows()` permutes `filteredRows` **and** `filteredRowIndices` together (`applyDisplaySort`), so `actualIndex` keeps pointing at the right line and every edit path works unchanged. `sortRows` is the permanent one and rewrites the document like any other write. Consequences of an active display sort: `filteredRows` is no longer the same array as `rows`, so `appendCompatible` append-only deltas are skipped in favour of full updates; and row drag-reorder is disabled in the webview, since a drop target's screen position no longer matches its file position. The permanent sort refuses to run while the file is still loading, in memory-optimized mode, or when there are parse errors — in each case `rows` is not the whole file and rewriting it would lose data.

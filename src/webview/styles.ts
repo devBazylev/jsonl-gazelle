@@ -274,6 +274,25 @@ export const styles = `
             margin: 5px 0;
         }
 
+        /* Non-interactive line naming the column's detected sort type */
+        .context-menu-hint {
+            padding: 3px 15px 5px;
+            font-size: 0.85em;
+            opacity: 0.7;
+            color: var(--vscode-menu-foreground);
+            cursor: default;
+            white-space: nowrap;
+        }
+
+        /* Arrow marking the column the table is currently display-sorted by */
+        .sort-indicator {
+            display: inline-block;
+            margin-left: 4px;
+            font-size: 0.85em;
+            opacity: 0.9;
+            vertical-align: middle;
+        }
+
         .row-context-menu {
             position: absolute;
             background-color: var(--vscode-menu-background);

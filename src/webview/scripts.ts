@@ -2,6 +2,8 @@
  * Webview JavaScript code
  */
 
+import { COLUMN_TYPE_LABELS } from '../jsonl/sorting';
+
 export const scripts = `
         const vscode = acquireVsCodeApi();
         
@@ -19,12 +21,17 @@ export const scripts = `
             parsedLines: [],
             rawContent: '',
             errorCount: 0,
+            displaySort: null, // { columnPath, direction } while the view is sorted
+            columnTypes: {}, // Detected value type per column path
             uiPreferences: {
                 lastView: 'table',
                 wrapText: false
             }
         };
-        
+
+        // Shared with the extension host's sort type detection
+        const SORT_TYPE_LABELS = ${JSON.stringify(COLUMN_TYPE_LABELS)};
+
         let contextMenuColumn = null;
         let uiPreferencesApplied = false;
         let prettyEditorModified = false; // Whether the user edited in pretty print view
@@ -1916,14 +1923,32 @@ export const scripts = `
         function showContextMenu(event, columnPath) {
             event.preventDefault();
             contextMenuColumn = columnPath;
-            
+
             const menu = document.getElementById('contextMenu');
             const unstringifyMenuItem = document.getElementById('unstringifyMenuItem');
-            
+
             // Check if this column contains stringified JSON
             const hasStringifiedJson = checkColumnForStringifiedJson(columnPath);
             unstringifyMenuItem.style.display = hasStringifiedJson ? 'block' : 'none';
-            
+
+            // Tell the user how this column's values will be compared. Stays
+            // hidden until detection has run, rather than guessing a type.
+            const sortTypeHint = document.getElementById('sortTypeHint');
+            if (sortTypeHint) {
+                const detectedType = currentData.columnTypes && currentData.columnTypes[columnPath];
+                sortTypeHint.textContent = detectedType
+                    ? 'Sorts as: ' + (SORT_TYPE_LABELS[detectedType] || detectedType)
+                    : '';
+                sortTypeHint.style.display = detectedType ? 'block' : 'none';
+            }
+
+            // Clearing is only meaningful while this column is display-sorted
+            const clearDisplaySortMenuItem = document.getElementById('clearDisplaySortMenuItem');
+            if (clearDisplaySortMenuItem) {
+                const displaySort = currentData.displaySort;
+                clearDisplaySortMenuItem.style.display = displaySort ? 'block' : 'none';
+            }
+
             menu.style.display = 'block';
             menu.style.left = event.pageX + 'px';
             menu.style.top = event.pageY + 'px';
@@ -1952,6 +1977,16 @@ export const scripts = `
                    (trimmed.endsWith(']') || trimmed.endsWith('}'));
         }
         
+        // Display-only sort. The extension permutes the rows it sends back, so
+        // the table just re-renders; the file on disk is untouched.
+        function setDisplaySort(columnPath, direction) {
+            vscode.postMessage({
+                type: 'setDisplaySort',
+                columnPath: columnPath,
+                direction: direction
+            });
+        }
+
         function hideContextMenu() {
             document.getElementById('contextMenu').style.display = 'none';
             document.getElementById('rowContextMenu').style.display = 'none';
@@ -1964,6 +1999,29 @@ export const scripts = `
             if (!action || !contextMenuColumn) return;
 
             switch (action) {
+                case 'displaySortAsc':
+                    setDisplaySort(contextMenuColumn, 'asc');
+                    break;
+                case 'displaySortDesc':
+                    setDisplaySort(contextMenuColumn, 'desc');
+                    break;
+                case 'clearDisplaySort':
+                    setDisplaySort(null, null);
+                    break;
+                case 'sortAsc':
+                    vscode.postMessage({
+                        type: 'sortRows',
+                        columnPath: contextMenuColumn,
+                        direction: 'asc'
+                    });
+                    break;
+                case 'sortDesc':
+                    vscode.postMessage({
+                        type: 'sortRows',
+                        columnPath: contextMenuColumn,
+                        direction: 'desc'
+                    });
+                    break;
                 case 'hideColumn':
                     vscode.postMessage({
                         type: 'toggleColumnVisibility',
@@ -2467,6 +2525,17 @@ export const scripts = `
 
                 th.appendChild(headerContent);
 
+                // Mark the column the view is currently sorted by. Sits outside
+                // headerContent so a long column name can't ellipsize it away.
+                const displaySort = data.displaySort;
+                if (displaySort && displaySort.columnPath === column.path) {
+                    const indicator = document.createElement('span');
+                    indicator.className = 'sort-indicator';
+                    indicator.textContent = displaySort.direction === 'desc' ? '▼' : '▲';
+                    indicator.title = 'Display sorted ' + (displaySort.direction === 'desc' ? 'descending' : 'ascending');
+                    th.appendChild(indicator);
+                }
+
                 const resizeHandle = document.createElement('div');
                 resizeHandle.className = 'resize-handle';
                 resizeHandle.addEventListener('mousedown', (e) => startResize(e, th, column.path));
@@ -2603,6 +2672,7 @@ export const scripts = `
 
         function handleRowDrop(e) {
             e.preventDefault();
+            if (currentData.displaySort) return; // Visual order != file order
             const targetTr = e.target.closest('tr');
             if (!targetTr || targetTr === draggedRow) return;
             const fromIndex = parseInt(draggedRow.dataset.actualIndex, 10);
@@ -2651,8 +2721,10 @@ export const scripts = `
             rowNumCell.addEventListener('contextmenu', (e) => showRowContextMenu(e, rowIndex));
             tr.appendChild(rowNumCell);
 
-            // Row drag and drop for reordering
-            tr.draggable = true;
+            // Row drag and drop for reordering. Disabled while the view is
+            // display-sorted: dropping a row would move it to the target's
+            // position in the file, which is not where it appears on screen.
+            tr.draggable = !currentData.displaySort;
             tr.addEventListener('dragstart', handleRowDragStart);
             tr.addEventListener('dragend', handleRowDragEnd);
             tr.addEventListener('dragover', handleRowDragOver);
