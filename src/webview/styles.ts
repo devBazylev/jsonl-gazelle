@@ -238,6 +238,28 @@ export const styles = `
             white-space: nowrap;
         }
 
+        /* Count of hidden columns, shown on the row-number header */
+        .hidden-columns-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            margin-left: 4px;
+            padding: 1px 4px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 10px;
+            font-family: inherit;
+            line-height: 1.4;
+            vertical-align: middle;
+            background-color: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+        }
+
+        .hidden-columns-badge:hover {
+            filter: brightness(1.25);
+        }
+
         /* Non-modal notice: the edited row moved because the view is sorted */
         .sort-jump-notice {
             position: fixed;

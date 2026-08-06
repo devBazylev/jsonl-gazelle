@@ -2011,6 +2011,24 @@ export const scripts = `
             return true;
         }
 
+        // Open the column menu straight onto its unhide list. Used by the badge on
+        // the row-number header, so unhiding is reachable by left-click and not
+        // only by knowing to right-click.
+        function openUnhideColumnsMenu(event) {
+            event.preventDefault();
+            // The document-level handler closes the menu on any outside click,
+            // and this button sits outside it
+            event.stopPropagation();
+
+            showContextMenu(event, null);
+
+            const menuItem = document.getElementById('unhideColumnsMenuItem');
+            if (!menuItem || menuItem.style.display === 'none') return;
+
+            menuItem.classList.add('submenu-open');
+            positionUnhideColumnsSubmenu();
+        }
+
         // Flip the submenu when it would run past the right or bottom edge of the window
         function positionUnhideColumnsSubmenu() {
             positionSubmenu('unhideColumnsMenuItem', 'unhideColumnsSubmenu');
@@ -2699,22 +2717,44 @@ export const scripts = `
             
             const headerRow = document.createElement('tr');
 
+            const hiddenColumns = getUnhideableColumns(data.columns);
+            // The row-number column needs room for the hidden-columns badge
+            const rowNumWidth = hiddenColumns.length > 0 ? '72px' : '40px';
+
             // Add col for row number column
             if (colgroup) {
                 const col = document.createElement('col');
-                col.style.width = '40px';
+                col.style.width = rowNumWidth;
                 colgroup.appendChild(col);
             }
 
             // Add row number header
             const rowNumHeader = document.createElement('th');
             rowNumHeader.textContent = '#';
-            rowNumHeader.style.minWidth = '40px';
+            rowNumHeader.style.minWidth = rowNumWidth;
             rowNumHeader.style.textAlign = 'center';
             rowNumHeader.classList.add('row-header');
             rowNumHeader.title = 'Right-click to unhide columns';
             // Entry point for unhiding columns that still works when every column is hidden
             rowNumHeader.addEventListener('contextmenu', (e) => showContextMenu(e, null));
+
+            // Hidden columns are otherwise invisible - the only hint they exist is
+            // a gap in the header. Surface a count here, and make it the shortcut
+            // to the same unhide menu the right-click opens.
+            if (hiddenColumns.length > 0) {
+                const hiddenBadge = document.createElement('button');
+                hiddenBadge.className = 'hidden-columns-badge';
+                hiddenBadge.title = hiddenColumns.length === 1
+                    ? '1 hidden column - click to unhide'
+                    : hiddenColumns.length + ' hidden columns - click to unhide';
+                hiddenBadge.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+                const count = document.createElement('span');
+                count.textContent = String(hiddenColumns.length);
+                hiddenBadge.appendChild(count);
+                hiddenBadge.addEventListener('click', openUnhideColumnsMenu);
+                rowNumHeader.appendChild(hiddenBadge);
+            }
+
             headerRow.appendChild(rowNumHeader);
 
             // Data columns
