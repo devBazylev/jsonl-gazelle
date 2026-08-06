@@ -24,4 +24,9 @@ test-data/**
 
 # README-only images (vsce rewrites relative README links to GitHub raw URLs)
 jsonl-gazelle-screenshot*.jpg
+jsonl-gazelle-feature-map.jpg
+jsonl-gazelle-tabs.jpg
 jsonl-gazelle.svg
+
+# Screenshot-generation tooling (dev-only, not shipped)
+tools/**
