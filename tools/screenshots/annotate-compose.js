@@ -42,6 +42,7 @@ async function main() {
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #1e1e1e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .wrap { width: 1440px; }
   .frame { position: relative; width: 1440px; }
   .frame img { display: block; width: 1440px; }
   .pin {
@@ -69,13 +70,15 @@ async function main() {
 </style>
 </head>
 <body>
-  <div class="frame">
-    <img src="${imgUri}">
-    ${pinsHtml}
-  </div>
-  <div class="legend">
-    <div class="legend-title">JSONL Gazelle at a glance</div>
-    ${legendHtml}
+  <div class="wrap">
+    <div class="frame">
+      <img src="${imgUri}">
+      ${pinsHtml}
+    </div>
+    <div class="legend">
+      <div class="legend-title">JSONL Gazelle at a glance</div>
+      ${legendHtml}
+    </div>
   </div>
 </body>
 </html>`;
@@ -87,7 +90,16 @@ async function main() {
   const p = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await p.goto(`file://${htmlPath}`);
   await p.waitForTimeout(150);
-  await p.screenshot({ path: path.join(OUT, 'feature-map.jpg'), fullPage: true, type: 'jpeg', quality: 84 });
+  // Clip to the wrap element's actual box instead of a fullPage screenshot -
+  // fullPage was capturing the full 1000px viewport height regardless of how
+  // tall the content actually was, leaving dead space below the legend.
+  const wrapBox = await p.locator('.wrap').boundingBox();
+  await p.screenshot({
+    path: path.join(OUT, 'feature-map.jpg'),
+    type: 'jpeg',
+    quality: 84,
+    clip: { x: wrapBox.x, y: wrapBox.y, width: wrapBox.width, height: wrapBox.height },
+  });
   await browser.close();
   console.log('Wrote feature-map.jpg');
 }

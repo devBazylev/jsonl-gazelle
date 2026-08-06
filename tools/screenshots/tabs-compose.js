@@ -12,9 +12,9 @@ const OUT = path.join(__dirname, '.generated', 'shots');
 const SCALE = 2;
 
 const items = [
-  { key: 'table', n: 1, label: 'Table', desc: 'Spreadsheet-style grid — sort, hide, edit, and expand nested fields into columns.' },
-  { key: 'json', n: 2, label: 'Pretty Print', desc: 'Syntax-highlighted, indented JSON — one record at a time, easy to scan.' },
-  { key: 'raw', n: 3, label: 'Raw', desc: 'The file exactly as it is on disk — one JSON object per line.' },
+  { key: 'table', n: 1, label: 'Table', desc: 'Spreadsheet-style grid. Sort, hide, edit, and expand nested fields into columns.' },
+  { key: 'json', n: 2, label: 'Pretty Print', desc: 'Syntax-highlighted, indented JSON. One record at a time, easy to scan.' },
+  { key: 'raw', n: 3, label: 'Raw', desc: 'The file exactly as it is on disk. One JSON object per line.' },
 ];
 
 async function main() {
@@ -43,7 +43,7 @@ async function main() {
   }).join('\n');
 
   const legendHtml = items.map(it =>
-    `<div class="legend-item"><span class="legend-num">${it.n}</span><span class="legend-text"><strong>${it.label}</strong> — ${it.desc}</span></div>`
+    `<div class="legend-item"><span class="legend-num">${it.n}</span><span class="legend-text"><strong>${it.label}.</strong> ${it.desc}</span></div>`
   ).join('\n');
 
   const page = `<!doctype html>
