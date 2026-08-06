@@ -32,6 +32,11 @@ export const scripts = `
         // Shared with the extension host's sort type detection
         const SORT_TYPE_LABELS = ${JSON.stringify(COLUMN_TYPE_LABELS)};
 
+        // Set when a cell edit is expected to move its row under the active
+        // display sort; consumed by the next table rebuild (see checkSortJump)
+        let pendingSortJumpWatch = null;
+        let sortJumpNoticeTimeout = null;
+
         let contextMenuColumn = null;
         let uiPreferencesApplied = false;
         let prettyEditorModified = false; // Whether the user edited in pretty print view
@@ -2120,6 +2125,7 @@ export const scripts = `
         // Display-only sort. The extension permutes the rows it sends back, so
         // the table just re-renders; the file on disk is untouched.
         function setDisplaySort(columnPath, direction) {
+            hideSortJumpNotice(); // Positions in it refer to the old ordering
             vscode.postMessage({
                 type: 'setDisplaySort',
                 columnPath: columnPath,
@@ -3101,6 +3107,7 @@ export const scripts = `
             } else if (prevScroll > 0) {
                 restoreTableScroll(prevScroll);
             }
+            checkSortJump();
         }
 
         // Render enough chunks to make the saved scroll offset reachable, then
@@ -3126,6 +3133,89 @@ export const scripts = `
                 renderTableChunk();
             }
             tableContainer.scrollTop = targetScroll;
+        }
+
+        // Editing the sorted column can move the row out from under the user.
+        // Remember where it was so the next rebuild can tell them where it went.
+        function watchSortJump(actualRowIndex, columnPath) {
+            const displaySort = currentData.displaySort;
+            // Only the sorted column can change a row's position: the sort is
+            // stable, so edits to any other column leave the order alone
+            if (!displaySort || displaySort.columnPath !== columnPath) return;
+
+            const previousPosition = (currentData.rowIndices || []).indexOf(actualRowIndex);
+            if (previousPosition === -1) return;
+
+            pendingSortJumpWatch = {
+                actualRowIndex: actualRowIndex,
+                previousPosition: previousPosition
+            };
+        }
+
+        // Runs after a rebuild: if the watched row landed somewhere else, offer a
+        // non-modal way to follow it rather than silently moving it
+        function checkSortJump() {
+            const watch = pendingSortJumpWatch;
+            if (!watch) return;
+            pendingSortJumpWatch = null;
+
+            const newPosition = (currentData.rowIndices || []).indexOf(watch.actualRowIndex);
+            if (newPosition === -1 || newPosition === watch.previousPosition) return;
+
+            const notice = document.getElementById('sortJumpNotice');
+            const text = document.getElementById('sortJumpNoticeText');
+            if (!notice || !text) return;
+
+            // The # column shows the display position, so name both that and the
+            // file line - otherwise "row 1 moved to row 1" reads as nonsense
+            text.textContent = 'Edited row (file line ' + (watch.actualRowIndex + 1) + ') moved from #' +
+                (watch.previousPosition + 1) + ' to #' + (newPosition + 1) + ' in the sorted view.';
+            notice.dataset.targetPosition = String(newPosition);
+            notice.style.display = 'flex';
+
+            if (sortJumpNoticeTimeout) clearTimeout(sortJumpNoticeTimeout);
+            sortJumpNoticeTimeout = setTimeout(hideSortJumpNotice, 12000);
+        }
+
+        function hideSortJumpNotice() {
+            const notice = document.getElementById('sortJumpNotice');
+            if (notice) notice.style.display = 'none';
+            if (sortJumpNoticeTimeout) {
+                clearTimeout(sortJumpNoticeTimeout);
+                sortJumpNoticeTimeout = null;
+            }
+        }
+
+        // Scroll a row of the current (possibly sorted) view into view and flash it
+        function jumpToDisplayRow(position) {
+            if (currentView !== 'table') {
+                switchView('table', false);
+            }
+
+            const tbody = document.getElementById('tableBody');
+            if (!tbody || position < 0) return;
+
+            // The table body renders lazily in chunks - render up to the target
+            let guard = 0;
+            while (tableRenderState.renderedRows <= position &&
+                   tableRenderState.renderedRows < tableRenderState.totalRows &&
+                   guard++ < 10000) {
+                renderTableChunk();
+            }
+
+            const tr = tbody.children[position];
+            if (!tr) return;
+
+            tr.scrollIntoView({ block: 'center' });
+
+            document.querySelectorAll('#tableBody tr.selected').forEach(row => row.classList.remove('selected'));
+            tr.classList.add('selected');
+            selectedRowActualIndex = parseInt(tr.dataset.actualIndex, 10);
+
+            // Restart the flash even if the row still carries the class
+            tr.classList.remove('row-flash');
+            void tr.offsetWidth;
+            tr.classList.add('row-flash');
         }
 
         // Apply an update that was deferred because a cell edit was in progress
@@ -3719,7 +3809,10 @@ export const scripts = `
                 td.title = newValue;
                 // Keep the raw value in sync so Find/Replace sees the edit immediately
                 td.dataset.rawValue = newValue;
-                
+
+                // A sorted view may reorder around this edit - track where it goes
+                watchSortJump(rowIndex, columnPath);
+
                 // Send update message
                 vscode.postMessage({
                     type: 'updateCell',
@@ -4333,6 +4426,16 @@ export const scripts = `
             button.addEventListener('click', (e) => switchView(e.currentTarget.dataset.view));
         });
         
+        // "Row moved" notice: follow the row, or dismiss the notice
+        document.getElementById('sortJumpGoBtn').addEventListener('click', () => {
+            const position = parseInt(document.getElementById('sortJumpNotice').dataset.targetPosition, 10);
+            hideSortJumpNotice();
+            if (!isNaN(position)) {
+                jumpToDisplayRow(position);
+            }
+        });
+        document.getElementById('sortJumpCloseBtn').addEventListener('click', hideSortJumpNotice);
+
         // Add event listeners for context menus
         document.getElementById('contextMenu').addEventListener('click', handleContextMenu);
         document.getElementById('rowContextMenu').addEventListener('click', handleRowContextMenu);

@@ -127,7 +127,15 @@ ${styles}
             </div>
         </div>
     </div>
-    
+
+    <!-- Non-modal notice shown when re-sorting moves the row that was just edited -->
+    <div class="sort-jump-notice" id="sortJumpNotice" style="display: none;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+        <span id="sortJumpNoticeText"></span>
+        <button class="sort-jump-btn" id="sortJumpGoBtn">Jump to row</button>
+        <button class="sort-jump-close" id="sortJumpCloseBtn" title="Dismiss">✕</button>
+    </div>
+
     <div class="context-menu" id="contextMenu">
         <div class="context-menu-hint column-only" id="sortTypeHint"></div>
         <div class="context-menu-item column-only" data-action="displaySortAsc" title="Sort the table view only — the file on disk is not changed">
