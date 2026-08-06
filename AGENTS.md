@@ -4,7 +4,7 @@ This document describes the actual architecture of JSONL Gazelle so that human c
 
 ## Overview
 
-JSONL Gazelle is a VS Code extension that registers a **custom text editor** (`jsonl-gazelle.jsonlViewer`) for `.jsonl` and `.ndjson` files. It renders three views — Table, Pretty Print, and Raw — inside a single webview, supports in-place editing that writes back to the underlying text document, and includes optional OpenAI-powered features (AI columns, AI row generation, column suggestions).
+JSONL Gazelle is a VS Code extension that registers a **custom text editor** (`jsonl-gazelle.jsonlViewer`) for `.jsonl` and `.ndjson` files. It renders three views — Table, Pretty Print, and Raw — inside a single webview, supports in-place editing that writes back to the underlying text document, includes a file stats popover showing record count, column count, and file size, and provides optional AI-powered features (AI columns, AI row generation, column suggestions) via multiple providers (OpenAI, Anthropic, Google Gemini, or local OpenAI-compatible servers).
 
 ## Repository Layout
 
@@ -19,6 +19,7 @@ JSONL Gazelle is a VS Code extension that registers a **custom text editor** (`j
 | `src/jsonl/utils.ts` | Pure helpers: nested get/set/delete by dot-path, pretty→JSONL conversion, stringified-JSON detection. |
 | `src/jsonl/rowMapping.ts` | Search filtering that preserves original row indices. |
 | `src/jsonl/sorting.ts` | Column sorting: value-type autodetection (timestamp/currency/number/boolean/text) and comparators that carry row indices along. |
+| `src/jsonl/columns.ts` | `getUnhideableColumns()` — which hidden columns the "Unhide Column" menu may offer (mirrored in `scripts.ts`). |
 | `test/` | Plain Node test scripts (no framework), run by `npm test`. |
 | `test-data/` | Sample JSONL files plus `generate-large.js` for a ~64 MB stress file. |
 
@@ -54,7 +55,7 @@ Communication is `webview.postMessage` / `vscode.postMessage` with a `type` fiel
 
 **Webview → extension** (handled in the `onDidReceiveMessage` switch in `jsonlViewerProvider.ts`):
 
-`search`, `removeColumn`, `updateCell`, `expandColumn`, `collapseColumn`, `openUrl`, `documentChanged`, `rawContentChanged`, `rawContentSave`, `prettyContentChanged`, `prettyContentSave`, `forceSave`, `unstringifyColumn`, `deleteRow`, `insertRow`, `copyRow`, `duplicateRow`, `pasteRow`, `validateClipboard`, `reorderColumns`, `reorderRows`, `setDisplaySort`, `sortRows`, `toggleColumnVisibility`, `addColumn`, `addAIColumn`, `getSettings`, `getRecentEnumValues`, `checkAPIKey`, `showAPIKeyWarning`, `saveSettings`, `resetSettings`, `generateAIRows`, `requestColumnSuggestions`, `refresh`, `requestFullUpdate`, `setFollowMode`, `setViewPreference`, `setWrapTextPreference`
+`search`, `removeColumn`, `updateCell`, `expandColumn`, `collapseColumn`, `openUrl`, `documentChanged`, `rawContentChanged`, `rawContentSave`, `prettyContentChanged`, `prettyContentSave`, `forceSave`, `unstringifyColumn`, `deleteRow`, `insertRow`, `copyRow`, `duplicateRow`, `pasteRow`, `validateClipboard`, `reorderColumns`, `reorderRows`, `setDisplaySort`, `sortRows`, `toggleColumnVisibility`, `showColumns`, `addColumn`, `addAIColumn`, `getSettings`, `getRecentEnumValues`, `checkAPIKey`, `showAPIKeyWarning`, `saveSettings`, `resetSettings`, `generateAIRows`, `requestColumnSuggestions`, `refresh`, `requestFullUpdate`, `setFollowMode`, `setViewPreference`, `setWrapTextPreference`
 
 **Extension → webview**:
 
@@ -71,8 +72,8 @@ All writes go through `vscode.workspace.applyEdit()` with a full-document replac
 
 ## AI Integration (as it actually exists)
 
-- **Provider**: OpenAI only. `fetch` calls to `https://api.openai.com/v1/chat/completions` run in the **extension host**, not the webview.
-- **API key**: `context.secrets` under `openaiApiKey`. **Model**: `context.globalState` under `openaiModel` (default `gpt-5.4-mini`). Both are managed through the in-app settings modal (gear icon), *not* VS Code settings.
+- **Providers**: OpenAI, Anthropic, Google Gemini, and OpenAI-compatible endpoints (Ollama, LM Studio, vLLM, etc.). API calls run in the **extension host**, not the webview.
+- **Settings**: API keys and selected provider/model are stored in `context.secrets` and `context.globalState`, managed through the in-app settings modal (gear icon), *not* VS Code settings.
 - **Prompt templates** support these placeholders (resolved per row in `jsonlViewerProvider.ts`):
   - `{{row}}` — the entire row as JSON
   - `{{row.fieldname}}`, `{{row.fieldname[0]}}` — nested field / array element by path
@@ -80,8 +81,7 @@ All writes go through `vscode.workspace.applyEdit()` with a full-document replac
   - `{{rows_before}}` / `{{rows_after}}` — counts around the current row
   - `{{context_rows}}` / `{{row_count}}` — used by AI row generation
 - **Features**: fill a new column with AI output per row (`addAIColumn`), generate new rows from context (`generateAIRows`), and AI-suggested column definitions (`requestColumnSuggestions`).
-
-There are no other providers (no Anthropic/Gemini/local endpoints) and no WebSocket/agent-endpoint integration; adding a provider means abstracting the two `fetch` call sites in `jsonlViewerProvider.ts`.
+- **Model lists** are fetched live from each provider at settings time, allowing users to select from available models without manual configuration.
 
 ## Configuration
 

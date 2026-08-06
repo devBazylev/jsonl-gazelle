@@ -22,15 +22,15 @@ ${styles}
                 <img src="${gazelleIconUri}" class="logo" alt="JSONL Gazelle" id="logo" title="JSONL Gazelle" style="cursor: pointer;">
                 <img src="${gazelleAnimationUri}" class="logo-animation" id="logoAnimation" alt="Loading..." style="display: none; position: absolute; top: 0; left: 0; width: 32px; height: 32px;">
             </div>
-            <div class="loading-state" id="loadingState" style="display: none;">
-                <div>Loading large file...</div>
-                <div class="loading-progress" id="loadingProgress"></div>
-            </div>
             <div class="segmented-control">
                 <button class="active" data-view="table"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line></svg> Table</button>
                 <button data-view="json"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="8" y1="10" x2="20" y2="10"></line><line x1="12" y1="14" x2="20" y2="14"></line><line x1="8" y1="18" x2="20" y2="18"></line></svg> Pretty Print</button>
                 <button data-view="raw"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg> Raw</button>
-                <div class="error-count" id="errorCount" style="display: none;"></div>
+            </div>
+            <div class="error-count" id="errorCount" style="display: none;" data-tooltip="Lines that failed to parse as JSON"></div>
+            <div class="loading-state" id="loadingState" style="display: none;">
+                <div id="loadingLabel">Loading large file...</div>
+                <div class="loading-progress" id="loadingProgress"></div>
             </div>
             <button class="column-manager-btn" id="refreshBtn" data-tooltip="Reload the file from disk (Ctrl+R / F5)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
@@ -45,6 +45,13 @@ ${styles}
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7m0-18H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7m0-18v18"></path></svg>
                 Columns
             </button>
+            <!-- File stats (records / columns / size), shown on demand -->
+            <div class="file-info-control">
+                <button class="column-manager-btn" id="fileInfoBtn" data-tooltip="File stats: records, columns, size">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="11"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                </button>
+                <div class="file-info-popover" id="fileInfoPopover" style="display: none;"></div>
+            </div>
             <button class="column-manager-btn tooltip-right" id="settingsBtn" data-tooltip="AI settings: provider, API key, and model">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             </button>
@@ -122,57 +129,63 @@ ${styles}
     </div>
     
     <div class="context-menu" id="contextMenu">
-        <div class="context-menu-hint" id="sortTypeHint"></div>
-        <div class="context-menu-item" data-action="displaySortAsc" title="Sort the table view only — the file on disk is not changed">
+        <div class="context-menu-hint column-only" id="sortTypeHint"></div>
+        <div class="context-menu-item column-only" data-action="displaySortAsc" title="Sort the table view only — the file on disk is not changed">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
             Display Sorted Ascending
         </div>
-        <div class="context-menu-item" data-action="displaySortDesc" title="Sort the table view only — the file on disk is not changed">
+        <div class="context-menu-item column-only" data-action="displaySortDesc" title="Sort the table view only — the file on disk is not changed">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
             Display Sorted Descending
         </div>
-        <div class="context-menu-item" data-action="clearDisplaySort" id="clearDisplaySortMenuItem" style="display: none;">
+        <div class="context-menu-item column-only" data-action="clearDisplaySort" id="clearDisplaySortMenuItem" style="display: none;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             Clear Display Sort
         </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="sortAsc" title="Reorder the rows in the file itself (undo with Ctrl/Cmd+Z)">
+        <div class="context-menu-separator column-only"></div>
+        <div class="context-menu-item column-only" data-action="sortAsc" title="Reorder the rows in the file itself (undo with Ctrl/Cmd+Z)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline><line x1="3" y1="22" x2="21" y2="22"></line></svg>
             Sort Rows Ascending
         </div>
-        <div class="context-menu-item" data-action="sortDesc" title="Reorder the rows in the file itself (undo with Ctrl/Cmd+Z)">
+        <div class="context-menu-item column-only" data-action="sortDesc" title="Reorder the rows in the file itself (undo with Ctrl/Cmd+Z)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline><line x1="3" y1="22" x2="21" y2="22"></line></svg>
             Sort Rows Descending
         </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="hideColumn">
+        <div class="context-menu-separator column-only"></div>
+        <div class="context-menu-item column-only" data-action="hideColumn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
             Hide Column
         </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="insertBefore">
+        <div class="context-menu-item has-submenu" data-action="unhideColumns" id="unhideColumnsMenuItem" style="display: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            <span id="unhideColumnsLabel">Unhide Column</span>
+            <span class="submenu-arrow">›</span>
+            <div class="context-submenu" id="unhideColumnsSubmenu"></div>
+        </div>
+        <div class="context-menu-separator column-only"></div>
+        <div class="context-menu-item column-only" data-action="insertBefore">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             Insert Column Before
         </div>
-        <div class="context-menu-item" data-action="insertAfter">
+        <div class="context-menu-item column-only" data-action="insertAfter">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             Insert Column After
         </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="insertAIColumn">
+        <div class="context-menu-separator column-only"></div>
+        <div class="context-menu-item column-only" data-action="insertAIColumn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             Insert Column with AI
         </div>
-        <div class="context-menu-item" data-action="suggestColumnWithAI">
+        <div class="context-menu-item column-only" data-action="suggestColumnWithAI">
             <span style="font-size: 14px; line-height: 14px;">🪄</span>
             Suggest Column with AI
         </div>
-        <div class="context-menu-separator"></div>
+        <div class="context-menu-separator column-only"></div>
         <div class="context-menu-item" data-action="unstringify" id="unstringifyMenuItem" style="display: none;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/></svg>
             Unstringify JSON in Column
         </div>
-        <div class="context-menu-item" data-action="remove" style="color: var(--vscode-errorForeground);">
+        <div class="context-menu-item column-only" data-action="remove" style="color: var(--vscode-errorForeground);">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             Delete Column
         </div>

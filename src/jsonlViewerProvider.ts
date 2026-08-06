@@ -4,6 +4,7 @@ import { JsonRow, ParsedLine, ColumnInfo } from './jsonl/types';
 import * as utils from './jsonl/utils';
 import { filterRowsWithIndices } from './jsonl/rowMapping';
 import { ColumnType, SortDirection, detectColumnType, sortRows, sortRowsWithIndices } from './jsonl/sorting';
+import { getUnhideableColumns } from './jsonl/columns';
 import { getHtmlTemplate } from './webview/template';
 import { styles } from './webview/styles';
 import { scripts } from './webview/scripts';
@@ -61,6 +62,7 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
     private webviewRowsSynced: boolean = false;
     private totalLines: number = 0;
     private loadedLines: number = 0;
+    private fileSizeBytes: number = 0;
     private pathCounts: { [key: string]: number } = {};
     private currentWebviewPanel: vscode.WebviewPanel | null = null;
     private memoryOptimized: boolean = false;
@@ -206,6 +208,10 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                                 break;
                             case 'toggleColumnVisibility':
                                 this.toggleColumnVisibility(message.columnPath, document);
+                                this.updateWebview(webviewPanel);
+                                break;
+                            case 'showColumns':
+                                this.showColumns(message.columnPaths, document);
                                 this.updateWebview(webviewPanel);
                                 break;
                             case 'addColumn':
@@ -420,6 +426,17 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
             this.isIndexing = true;
             const text = document.getText();
             this.rawContent = text;
+            if (document.uri.scheme === 'file' && !document.isDirty) {
+                try {
+                    // O(1) filesystem stat for byte size
+                    this.fileSizeBytes = (await vscode.workspace.fs.stat(document.uri)).size;
+                } catch {
+                    this.fileSizeBytes = Buffer.byteLength(text, 'utf8');
+                }
+            } else {
+                // Unsaved edits (or a non-file scheme) make the on-disk size wrong
+                this.fileSizeBytes = Buffer.byteLength(text, 'utf8');
+            }
             const lines = text.split('\n');
             
             this.totalLines = lines.length;
@@ -630,7 +647,8 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                         loadingChunks: this.loadingChunks,
                         progressPercent: this.totalLines > 0 ? Math.round((this.loadedLines / this.totalLines) * 100) : 100,
                         memoryOptimized: this.memoryOptimized,
-                        displayedRows: this.rows.length
+                        displayedRows: this.rows.length,
+                        fileSizeBytes: this.fileSizeBytes || 0
                     }
                 }
             };
@@ -1164,6 +1182,24 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         column.visible = !column.visible;
 
         // Persist visibility preference for this file if document is provided
+        if (document) {
+            this.updateColumnPreferencesForDocument(document);
+        }
+    }
+
+    /**
+     * Make hidden columns visible again. `columnPaths` unhides exactly those columns;
+     * omitting it unhides everything the user hid (see getUnhideableColumns).
+     */
+    private showColumns(columnPaths: string[] | undefined, document?: vscode.TextDocument) {
+        const targets = Array.isArray(columnPaths)
+            ? this.columns.filter(col => !col.visible && columnPaths.indexOf(col.path) !== -1)
+            : getUnhideableColumns(this.columns);
+
+        if (targets.length === 0) return;
+
+        targets.forEach(col => { col.visible = true; });
+
         if (document) {
             this.updateColumnPreferencesForDocument(document);
         }
@@ -3016,7 +3052,8 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                         loadingChunks: this.loadingChunks,
                         progressPercent: this.totalLines > 0 ? Math.round((this.loadedLines / this.totalLines) * 100) : 100,
                         memoryOptimized: this.memoryOptimized,
-                        displayedRows: this.rows.length
+                        displayedRows: this.rows.length,
+                        fileSizeBytes: this.fileSizeBytes || 0
                     },
                     uiPreferences: {
                         lastView: uiPrefs.lastView || 'table',

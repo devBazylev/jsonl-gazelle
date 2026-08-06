@@ -8,7 +8,7 @@ const { getHtmlTemplate } = require('../out/webview/template');
 assert.doesNotThrow(() => new Function(scripts), 'webview scripts string must be valid JavaScript');
 
 // Sanity: key functions of the table pipeline are present
-['updateTable', 'buildTableHeader', 'renderTableChunk', 'createTableRow', 'rebuildTable', 'flushDeferredUpdate', 'appendRows', 'restoreTableScroll', 'updateLoadingBanner', 'setDisplaySort'].forEach(name => {
+['updateTable', 'buildTableHeader', 'renderTableChunk', 'createTableRow', 'rebuildTable', 'flushDeferredUpdate', 'appendRows', 'restoreTableScroll', 'updateLoadingBanner', 'renderFileInfo', 'toggleFileInfo', 'setDisplaySort'].forEach(name => {
     assert.ok(scripts.includes('function ' + name), 'expected function ' + name + ' in webview scripts');
 });
 

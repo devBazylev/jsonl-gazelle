@@ -15,7 +15,7 @@ export type SortDirection = 'asc' | 'desc';
 export type ColumnType = 'timestamp' | 'currency' | 'number' | 'boolean' | 'string';
 
 /** Human-readable label for the detected type, shown in the column context menu. */
-export const COLUMN_TYPE_LABELS: { [key in ColumnType]: string } = {
+export const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
     timestamp: 'Timestamp',
     currency: 'Currency',
     number: 'Number',

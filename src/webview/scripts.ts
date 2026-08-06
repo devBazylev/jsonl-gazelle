@@ -669,12 +669,14 @@ export const scripts = `
                 // For 'json' and 'raw' views, let Monaco's built-in Find widget handle it
             }
 
-            // Escape: Close Find/Replace bar or Column Manager modal
+            // Escape: Close Find/Replace bar, Column Manager modal or file stats
             if (e.key === 'Escape') {
                 if (document.getElementById('findReplaceBar').style.display === 'block') {
                     closeFindReplaceBar();
                 } else if (document.getElementById('columnManagerModal').classList.contains('show')) {
                     closeColumnManager();
+                } else {
+                    toggleFileInfo(true);
                 }
             }
 
@@ -750,6 +752,11 @@ export const scripts = `
         // Find/Replace Button
         document.getElementById('findReplaceBtn').addEventListener('click', openFindReplaceBar);
 
+        // File stats popover
+        document.getElementById('fileInfoBtn').addEventListener('click', () => toggleFileInfo());
+        // A resize can move or rewrap the toolbar out from under the popover
+        window.addEventListener('resize', () => toggleFileInfo(true));
+
         // Column Manager Modal
         document.getElementById('columnManagerBtn').addEventListener('click', openColumnManager);
         document.getElementById('modalCloseBtn').addEventListener('click', closeColumnManager);
@@ -766,20 +773,21 @@ export const scripts = `
             const table = document.getElementById('dataTable');
             const colgroup = document.getElementById('tableColgroup');
             const thead = table.querySelector('thead tr');
-            
+
             if (e.target.checked) {
-                // Freeze current column widths before applying wrap
-                if (colgroup && thead) {
+                // Freeze current column widths before applying wrap; only while the
+                // table is visible - a hidden table measures every column as 0px
+                if (currentView === 'table' && colgroup && thead) {
                     const headers = thead.querySelectorAll('th');
                     const cols = colgroup.querySelectorAll('col');
-                    
+
                     // Measure and freeze ALL column widths
                     headers.forEach((th, index) => {
                         if (cols[index]) {
                             // Always set width to current actual width
                             const width = th.getBoundingClientRect().width;
                             cols[index].style.width = width + 'px';
-                            
+
                             // Save width for persistence
                             const columnPath = cols[index].dataset.columnPath;
                             if (columnPath) {
@@ -787,11 +795,11 @@ export const scripts = `
                             }
                         }
                     });
+
+                    // Apply fixed layout to prevent recalculation
+                    table.style.tableLayout = 'fixed';
                 }
-                
-                // Apply fixed layout to prevent recalculation
-                table.style.tableLayout = 'fixed';
-                
+
                 // Add wrap class
                 table.classList.add('text-wrap');
             } else {
@@ -800,6 +808,11 @@ export const scripts = `
                 // Note: We intentionally do NOT remove table-layout or col widths
                 // so the column sizes remain stable
             }
+
+            // Wrap is shared by all three views; keep the editors in sync
+            const editorWordWrap = e.target.checked ? 'on' : 'off';
+            if (prettyEditor) prettyEditor.updateOptions({ wordWrap: editorWordWrap });
+            if (rawEditor) rawEditor.updateOptions({ wordWrap: editorWordWrap });
 
             // Persist wrap text preference globally
             vscode.postMessage({
@@ -1920,40 +1933,167 @@ export const scripts = `
         
         
         
+        // --- shared:unhideable-columns (keep in sync with src/jsonl/columns.ts) ---
+        function getUnhideableColumns(columns) {
+            if (!Array.isArray(columns)) {
+                return [];
+            }
+
+            const byPath = new Map();
+            columns.forEach(col => byPath.set(col.path, col));
+
+            return columns.filter(col => {
+                if (col.visible || col.isExpanded) {
+                    return false;
+                }
+                if (col.parentPath) {
+                    const parent = byPath.get(col.parentPath);
+                    if (!parent || !parent.isExpanded) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        }
+        // --- end shared:unhideable-columns ---
+
+        // Fills the "Unhide Column" submenu; returns true when there is anything to unhide
+        function populateUnhideColumnsMenu() {
+            const menuItem = document.getElementById('unhideColumnsMenuItem');
+            const submenu = document.getElementById('unhideColumnsSubmenu');
+            const label = document.getElementById('unhideColumnsLabel');
+            if (!menuItem || !submenu) return false;
+
+            menuItem.classList.remove('submenu-open');
+            submenu.classList.remove('flip-left', 'flip-up');
+            submenu.scrollTop = 0;
+            submenu.innerHTML = '';
+
+            const hiddenColumns = getUnhideableColumns(currentData && currentData.columns);
+
+            if (hiddenColumns.length === 0) {
+                menuItem.style.display = 'none';
+                return false;
+            }
+
+            if (label) {
+                label.textContent = 'Unhide Column (' + hiddenColumns.length + ')';
+            }
+
+            hiddenColumns.forEach(column => {
+                const entry = document.createElement('div');
+                entry.className = 'context-menu-item';
+                entry.dataset.action = 'unhideColumn';
+                entry.dataset.columnPath = column.path;
+                entry.textContent = column.displayName || column.path;
+                entry.title = column.path;
+                submenu.appendChild(entry);
+            });
+
+            if (hiddenColumns.length > 1) {
+                const separator = document.createElement('div');
+                separator.className = 'context-menu-separator';
+                submenu.appendChild(separator);
+
+                const showAll = document.createElement('div');
+                showAll.className = 'context-menu-item';
+                showAll.dataset.action = 'unhideAllColumns';
+                showAll.textContent = 'Unhide All Columns';
+                submenu.appendChild(showAll);
+            }
+
+            menuItem.style.display = 'block';
+            return true;
+        }
+
+        // Flip the submenu when it would run past the right or bottom edge of the window
+        function positionUnhideColumnsSubmenu() {
+            const menuItem = document.getElementById('unhideColumnsMenuItem');
+            const submenu = document.getElementById('unhideColumnsSubmenu');
+            if (!menuItem || !submenu) return;
+
+            submenu.classList.remove('flip-left', 'flip-up');
+
+            // Measure off-screen so the flip decision doesn't depend on the hover state
+            const previousDisplay = submenu.style.display;
+            const previousVisibility = submenu.style.visibility;
+            submenu.style.visibility = 'hidden';
+            submenu.style.display = 'block';
+
+            const itemRect = menuItem.getBoundingClientRect();
+            const submenuWidth = submenu.offsetWidth;
+            const submenuHeight = submenu.offsetHeight;
+
+            submenu.style.display = previousDisplay;
+            submenu.style.visibility = previousVisibility;
+
+            if (itemRect.right + submenuWidth > window.innerWidth && itemRect.left - submenuWidth > 0) {
+                submenu.classList.add('flip-left');
+            }
+            if (itemRect.top + submenuHeight > window.innerHeight && itemRect.bottom - submenuHeight > 0) {
+                submenu.classList.add('flip-up');
+            }
+        }
+
         function showContextMenu(event, columnPath) {
             event.preventDefault();
-            contextMenuColumn = columnPath;
+            contextMenuColumn = columnPath || null;
 
             const menu = document.getElementById('contextMenu');
             const unstringifyMenuItem = document.getElementById('unstringifyMenuItem');
 
+            const hasHiddenColumns = populateUnhideColumnsMenu();
+
+            // Column-specific entries only make sense when a data column was right-clicked
+            // (the row-number header opens the same menu just to reach the unhide list)
+            menu.querySelectorAll('.column-only').forEach(element => {
+                element.style.display = contextMenuColumn ? 'block' : 'none';
+            });
+
             // Check if this column contains stringified JSON
-            const hasStringifiedJson = checkColumnForStringifiedJson(columnPath);
+            const hasStringifiedJson = contextMenuColumn ? checkColumnForStringifiedJson(contextMenuColumn) : false;
             unstringifyMenuItem.style.display = hasStringifiedJson ? 'block' : 'none';
 
-            // Tell the user how this column's values will be compared. Stays
-            // hidden until detection has run, rather than guessing a type.
-            const sortTypeHint = document.getElementById('sortTypeHint');
-            if (sortTypeHint) {
-                const detectedType = currentData.columnTypes && currentData.columnTypes[columnPath];
-                sortTypeHint.textContent = detectedType
-                    ? 'Sorts as: ' + (SORT_TYPE_LABELS[detectedType] || detectedType)
-                    : '';
-                sortTypeHint.style.display = detectedType ? 'block' : 'none';
+            if (contextMenuColumn) {
+                // Tell the user how this column's values will be compared. Stays
+                // hidden until detection has run, rather than guessing a type.
+                const sortTypeHint = document.getElementById('sortTypeHint');
+                if (sortTypeHint) {
+                    const detectedType = currentData.columnTypes && currentData.columnTypes[contextMenuColumn];
+                    sortTypeHint.textContent = detectedType
+                        ? 'Sorts as: ' + (SORT_TYPE_LABELS[detectedType] || detectedType)
+                        : '';
+                    sortTypeHint.style.display = detectedType ? 'block' : 'none';
+                }
+
+                // Clearing is only meaningful while a column is display-sorted
+                const clearDisplaySortMenuItem = document.getElementById('clearDisplaySortMenuItem');
+                if (clearDisplaySortMenuItem) {
+                    clearDisplaySortMenuItem.style.display = currentData.displaySort ? 'block' : 'none';
+                }
             }
 
-            // Clearing is only meaningful while this column is display-sorted
-            const clearDisplaySortMenuItem = document.getElementById('clearDisplaySortMenuItem');
-            if (clearDisplaySortMenuItem) {
-                const displaySort = currentData.displaySort;
-                clearDisplaySortMenuItem.style.display = displaySort ? 'block' : 'none';
+            if (!contextMenuColumn && !hasHiddenColumns) {
+                hideContextMenu();
+                return;
             }
 
             menu.style.display = 'block';
             menu.style.left = event.pageX + 'px';
             menu.style.top = event.pageY + 'px';
+
+            // Keep the menu inside the window now that its height varies with the unhide entry
+            const menuRect = menu.getBoundingClientRect();
+            if (menuRect.right > window.innerWidth) {
+                menu.style.left = Math.max(0, event.pageX - menuRect.width) + 'px';
+            }
+            if (menuRect.bottom > window.innerHeight) {
+                menu.style.top = Math.max(0, event.pageY - menuRect.height) + 'px';
+            }
+
+            positionUnhideColumnsSubmenu();
         }
-        
+
         function checkColumnForStringifiedJson(columnPath) {
             // Check a sample of rows to see if they contain stringified JSON
             const sampleSize = Math.min(20, currentData.rows.length);
@@ -1989,14 +2129,38 @@ export const scripts = `
 
         function hideContextMenu() {
             document.getElementById('contextMenu').style.display = 'none';
+            document.getElementById('unhideColumnsMenuItem')?.classList.remove('submenu-open');
             document.getElementById('rowContextMenu').style.display = 'none';
             contextMenuColumn = null;
             contextMenuRow = null;
         }
         
         function handleContextMenu(event) {
-            const action = event.target.closest('.context-menu-item')?.dataset.action;
-            if (!action || !contextMenuColumn) return;
+            const item = event.target.closest('.context-menu-item');
+            const action = item?.dataset.action;
+            if (!action) return;
+
+            // Unhide entries work without a right-clicked column
+            switch (action) {
+                case 'unhideColumns':
+                    // Parent of the submenu: toggle it (for click/touch) and keep the menu open
+                    item.classList.toggle('submenu-open');
+                    positionUnhideColumnsSubmenu();
+                    return;
+                case 'unhideColumn':
+                    vscode.postMessage({
+                        type: 'showColumns',
+                        columnPaths: [item.dataset.columnPath]
+                    });
+                    hideContextMenu();
+                    return;
+                case 'unhideAllColumns':
+                    vscode.postMessage({ type: 'showColumns' });
+                    hideContextMenu();
+                    return;
+            }
+
+            if (!contextMenuColumn) return;
 
             switch (action) {
                 case 'displaySortAsc':
@@ -2260,6 +2424,7 @@ export const scripts = `
                 const logoAnimation = document.getElementById('logoAnimation');
                 if (logoAnimation) logoAnimation.style.display = 'block';
                 loadingState.style.display = 'flex';
+                document.getElementById('loadingLabel').textContent = 'Loading large file...';
                 
                 // Don't show the indexing div since we have header loading state
                 document.getElementById('indexingDiv').style.display = 'none';
@@ -2284,6 +2449,9 @@ export const scripts = `
 
             // Update error count
             updateErrorBadge(data.errorCount);
+
+            // Keep the file stats popover current if the user has it open
+            renderFileInfo();
 
             // If the extension guarantees rows were only appended since the last
             // update (end of background chunk loading), keep the existing DOM -
@@ -2314,19 +2482,9 @@ export const scripts = `
 
                 if (wrapCheckbox && wrapCheckbox.checked !== desiredWrap) {
                     wrapCheckbox.checked = desiredWrap;
-
-                    if (currentView === 'table') {
-                        // Go through the checkbox's change handler so the
-                        // width-freezing logic sees the visible table
-                        wrapCheckbox.dispatchEvent(new Event('change'));
-                    } else {
-                        // Table is hidden, so widths can't be measured; just
-                        // toggle the class and let auto layout apply on switch
-                        const table = document.getElementById('dataTable');
-                        if (table) {
-                            table.classList.toggle('text-wrap', desiredWrap);
-                        }
-                    }
+                    // The change handler applies wrap to whichever views exist
+                    // and skips width-freezing while the table is hidden
+                    wrapCheckbox.dispatchEvent(new Event('change'));
                 }
             }
 
@@ -2368,6 +2526,7 @@ export const scripts = `
                 logo.style.display = 'none';
                 if (logoAnimation) logoAnimation.style.display = 'block';
                 loadingState.style.display = 'flex';
+                document.getElementById('loadingLabel').textContent = 'Loading large file...';
 
                 const memoryInfo = loadingProgress.memoryOptimized ?
                     \`<div style="font-size: 11px; color: var(--vscode-warningForeground); margin-top: 5px;">
@@ -2388,6 +2547,94 @@ export const scripts = `
             // Don't show the indexing div since we have header loading state
             document.getElementById('indexingDiv').style.display = 'none';
             document.getElementById('dataTable').style.display = 'table';
+        }
+
+        function formatBytes(bytes) {
+            if (!bytes || bytes < 0) return '';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let value = bytes;
+            let unitIndex = 0;
+            while (value >= 1024 && unitIndex < units.length - 1) {
+                value /= 1024;
+                unitIndex++;
+            }
+            const formatted = unitIndex === 0 ? value.toString() : value.toFixed(1);
+            return formatted + ' ' + units[unitIndex];
+        }
+
+        // Fill the file stats popover from currentData. Only does work while the
+        // popover is open, so data updates during chunk loading stay cheap
+        function renderFileInfo() {
+            const popover = document.getElementById('fileInfoPopover');
+            if (!popover || popover.style.display === 'none') return;
+
+            const data = currentData || {};
+            const lp = data.loadingProgress || {};
+            const rows = Array.isArray(data.rows) ? data.rows : [];
+            // Count actual parsed records, not raw lines: a trailing newline or
+            // blank lines inflate loadingProgress.totalLines, so use the loaded
+            // row count (blank/empty lines are skipped during parsing).
+            const allRows = Array.isArray(data.allRows) ? data.allRows : rows;
+            const columns = Array.isArray(data.columns) ? data.columns.filter(column => column.visible).length : 0;
+
+            // A filtered view shows a subset, so report both counts
+            const records = rows.length !== allRows.length
+                ? rows.length.toLocaleString() + ' of ' + allRows.length.toLocaleString()
+                : allRows.length.toLocaleString();
+            // Background chunks are still being parsed, so the counts are partial
+            const partial = data.isIndexing || (lp && lp.loadingChunks);
+
+            const entries = [
+                ['Records', records + (partial ? ' (loading…)' : '')],
+                ['Columns', columns.toLocaleString()],
+                ['Size', formatBytes(lp.fileSizeBytes || 0) || '—']
+            ];
+
+            popover.textContent = '';
+            entries.forEach(entry => {
+                const row = document.createElement('div');
+                row.className = 'file-info-row';
+                const label = document.createElement('span');
+                label.className = 'file-info-label';
+                label.textContent = entry[0];
+                const value = document.createElement('span');
+                value.textContent = entry[1];
+                row.appendChild(label);
+                row.appendChild(value);
+                popover.appendChild(row);
+            });
+        }
+
+        // Hang the popover under its button, clamped to the viewport: the
+        // toolbar wraps at narrow widths, so the button can sit close enough
+        // to an edge that a fixed anchor would push the panel off screen
+        function positionFileInfo() {
+            const popover = document.getElementById('fileInfoPopover');
+            const button = document.getElementById('fileInfoBtn');
+            if (!popover || !button) return;
+
+            const margin = 8;
+            const rect = button.getBoundingClientRect();
+            const width = popover.offsetWidth;
+            const rightmost = Math.max(margin, document.documentElement.clientWidth - width - margin);
+
+            popover.style.left = Math.max(margin, Math.min(rect.right - width, rightmost)) + 'px';
+            popover.style.top = (rect.bottom + 6) + 'px';
+        }
+
+        // Open/close the file stats popover; pass true to force it closed
+        function toggleFileInfo(forceClose) {
+            const popover = document.getElementById('fileInfoPopover');
+            const button = document.getElementById('fileInfoBtn');
+            if (!popover || !button) return;
+
+            const open = forceClose === true ? false : popover.style.display === 'none';
+            popover.style.display = open ? 'block' : 'none';
+            button.classList.toggle('toggled', open);
+            if (open) {
+                renderFileInfo();
+                positionFileInfo();
+            }
         }
 
         function updateErrorBadge(errorCount) {
@@ -2445,6 +2692,9 @@ export const scripts = `
             rowNumHeader.style.minWidth = '40px';
             rowNumHeader.style.textAlign = 'center';
             rowNumHeader.classList.add('row-header');
+            rowNumHeader.title = 'Right-click to unhide columns';
+            // Entry point for unhiding columns that still works when every column is hidden
+            rowNumHeader.addEventListener('contextmenu', (e) => showContextMenu(e, null));
             headerRow.appendChild(rowNumHeader);
 
             // Data columns
@@ -2941,6 +3191,10 @@ export const scripts = `
                     }
                 }
             }
+
+            // Deltas are the only update during chunk loading, so the stats
+            // would otherwise sit at the initial chunk's counts until it ends
+            renderFileInfo();
 
             if (currentView === 'table') {
                 if (followMode) {
@@ -3670,7 +3924,8 @@ export const scripts = `
             logo.style.display = 'none';
             if (logoAnimation) logoAnimation.style.display = 'block';
             loadingState.style.display = 'flex';
-            loadingState.innerHTML = '<div>Switching view...</div>';
+            document.getElementById('loadingLabel').textContent = 'Switching view...';
+            document.getElementById('loadingProgress').innerHTML = '';
             
             // Hide search container during view switch
             
@@ -3683,10 +3938,12 @@ export const scripts = `
             document.getElementById('tableViewContainer').style.display = 'none';
             document.getElementById('jsonViewContainer').style.display = 'none';
             document.getElementById('rawViewContainer').style.display = 'none';
+
+            // The stats popover would hover over the incoming view
+            toggleFileInfo(true);
             
-            // Show/hide column manager and wrap text controls based on view
+            // Show/hide the controls that only apply to the table view
             const columnManagerBtn = document.getElementById('columnManagerBtn');
-            const wrapTextControl = document.querySelector('.wrap-text-control');
             const findReplaceBtn = document.getElementById('findReplaceBtn');
             const settingsBtn = document.getElementById('settingsBtn');
             const followBtn = document.getElementById('followBtn');
@@ -3700,7 +3957,6 @@ export const scripts = `
                     document.getElementById('dataTable').style.display = 'table';
                     // Show column controls for table view
                     columnManagerBtn.style.display = 'flex';
-                    wrapTextControl.style.display = 'flex';
                     findReplaceBtn.style.display = 'flex';
                     settingsBtn.style.display = 'flex';
                     // Hide loading state immediately for table view (already rendered)
@@ -3716,7 +3972,6 @@ export const scripts = `
                     document.getElementById('jsonViewContainer').classList.add('isolated');
                     // Hide column controls for json view
                     columnManagerBtn.style.display = 'none';
-                    wrapTextControl.style.display = 'none';
                     settingsBtn.style.display = 'none';
                     // Show find button (triggers Monaco's find widget)
                     findReplaceBtn.style.display = 'flex';
@@ -3746,7 +4001,6 @@ export const scripts = `
                     document.getElementById('rawViewContainer').style.display = 'block';
                     // Hide column controls for raw view
                     columnManagerBtn.style.display = 'none';
-                    wrapTextControl.style.display = 'none';
                     settingsBtn.style.display = 'none';
                     // Show find button (triggers Monaco's find widget)
                     findReplaceBtn.style.display = 'flex';
@@ -3787,6 +4041,29 @@ export const scripts = `
             return 'vs';
         }
 
+        // Shared options so the Pretty Print and Raw editors look identical
+        // (and match the table view's monospace font)
+        function getSharedEditorOptions() {
+            // Monaco can't resolve CSS variables (it measures text on a canvas),
+            // so read the concrete editor font from the webview's CSS variables
+            const editorFontFamily = getComputedStyle(document.body)
+                .getPropertyValue('--vscode-editor-font-family').trim() ||
+                'Menlo, Monaco, "Courier New", monospace';
+
+            return {
+                theme: getMonacoTheme(),
+                automaticLayout: true,
+                scrollBeyondLastLine: false,
+                minimap: { enabled: false },
+                wordWrap: document.getElementById('wrapTextCheckbox').checked ? 'on' : 'off',
+                folding: true,
+                fontSize: 12,
+                fontFamily: editorFontFamily,
+                padding: { top: 8, bottom: 8 },
+                lineNumbersMinChars: 3
+            };
+        }
+
         function updatePrettyView() {
             const editorContainer = document.getElementById('prettyEditor');
             if (!editorContainer) return;
@@ -3802,14 +4079,9 @@ export const scripts = `
                 const prettyContent = currentData.prettyContent || '';
                 const lineMapping = currentData.prettyLineMapping || [];
 
-                prettyEditor = monaco.editor.create(editorContainer, {
+                prettyEditor = monaco.editor.create(editorContainer, Object.assign(getSharedEditorOptions(), {
                     value: prettyContent,
                     language: 'json',
-                    theme: getMonacoTheme(),
-                    automaticLayout: true,
-                    scrollBeyondLastLine: false,
-                    minimap: { enabled: false },
-                    wordWrap: 'on',
                     lineNumbers: lineMapping.length > 0 ? (lineNumber) => {
                         // Use custom line numbers based on mapping
                         if (lineNumber <= lineMapping.length) {
@@ -3818,11 +4090,8 @@ export const scripts = `
                             return mappedNumber === 0 ? '' : mappedNumber.toString();
                         }
                         return lineNumber.toString();
-                    } : 'on',
-                    folding: true,
-                    fontSize: 12,
-                    fontFamily: 'var(--vscode-editor-font-family)'
-                });
+                    } : 'on'
+                }));
 
                 // Disable JSON validation for JSONL files
                 monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
@@ -3928,19 +4197,11 @@ export const scripts = `
                     rawEditor.dispose();
                 }
                 
-                rawEditor = monaco.editor.create(editorContainer, {
+                rawEditor = monaco.editor.create(editorContainer, Object.assign(getSharedEditorOptions(), {
                     value: currentData.rawContent || '',
                     language: 'json',
-                    theme: getMonacoTheme(),
-                    automaticLayout: true,
-                    scrollBeyondLastLine: false,
-                    minimap: { enabled: false },
-                    wordWrap: 'on',
-                    lineNumbers: 'on',
-                    folding: true,
-                    fontSize: 12,
-                    fontFamily: 'var(--vscode-editor-font-family)'
-                });
+                    lineNumbers: 'on'
+                }));
                 
                 // Disable JSON validation for JSONL files
                 monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
@@ -4075,11 +4336,16 @@ export const scripts = `
         // Add event listeners for context menus
         document.getElementById('contextMenu').addEventListener('click', handleContextMenu);
         document.getElementById('rowContextMenu').addEventListener('click', handleRowContextMenu);
+        document.getElementById('unhideColumnsMenuItem').addEventListener('mouseenter', positionUnhideColumnsSubmenu);
         
         // Hide context menus when clicking outside
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.context-menu') && !e.target.closest('.row-context-menu')) {
                 hideContextMenu();
+            }
+            // The button's own handler toggles, so ignore clicks inside the control
+            if (!e.target.closest('.file-info-control')) {
+                toggleFileInfo(true);
             }
         });
         

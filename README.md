@@ -16,6 +16,8 @@ Fast JSONL viewer / editor for VS Code with advanced features including Table Vi
 
 ## What's new
 
+- *v0.6.1*: Updated dependencies
+- *v0.6.0*: File stats popover (record count, column count, file size); "Unhide Column" context menu to restore hidden columns; improved toolbar layout and stability
 - *v0.5.2*: Faster loading for large files
 - *v0.5.1*: Reduced package size
 - *v0.5.0*: Diff view; export to CSV; AI add now supports for Anthropic, Gemini, Ollama; persistent settings; various fixes
@@ -78,8 +80,7 @@ This will create `test-data/large.jsonl` with:
 The generated file is automatically excluded from git via `.gitignore` to keep the repository lightweight.
 
 ## What's next / Roadmap
-- [ ] Expand export options beyond CSV (e.g., JSON array, Parquet, or Avro) for analytics/data engineering workflows.
-- [x] Add configurable AI provider support (Anthropic/Google Gemini/local endpoints) in addition to OpenAI.
+- [ ] Sorting by column https://github.com/gaborcselle/jsonl-gazelle/issues/58
 
 ## License
 
