@@ -1181,6 +1181,14 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
         const column = this.columns.find(col => col.path === columnPath);
         if (!column) return;
 
+        // Hiding the last visible column leaves a table of empty rows with no
+        // column header to right-click. Easy to hit on files of bare JSON values,
+        // which have a single "(value)" column and nothing else to fall back to.
+        if (column.visible && this.columns.filter(col => col.visible).length === 1) {
+            vscode.window.showWarningMessage('JSONL Gazelle: this is the only visible column, so it cannot be hidden.');
+            return;
+        }
+
         // Toggle the visibility
         column.visible = !column.visible;
 
@@ -1316,6 +1324,14 @@ export class JsonlViewerProvider implements vscode.CustomTextEditorProvider {
                 col.visible = visibility[col.path];
             }
         });
+
+        // Stored state that hides every column would open the file as a blank
+        // table - rows numbered, no cells, nothing to right-click to recover.
+        // Preferences persist per file, so it would come back on every load.
+        // Ignore such a state rather than honouring it.
+        if (this.columns.length > 0 && !this.columns.some(col => col.visible)) {
+            this.columns.forEach(col => { col.visible = true; });
+        }
     }
 
     private async handleAddColumn(

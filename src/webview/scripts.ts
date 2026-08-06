@@ -2013,8 +2013,16 @@ export const scripts = `
 
         // Flip the submenu when it would run past the right or bottom edge of the window
         function positionUnhideColumnsSubmenu() {
-            const menuItem = document.getElementById('unhideColumnsMenuItem');
-            const submenu = document.getElementById('unhideColumnsSubmenu');
+            positionSubmenu('unhideColumnsMenuItem', 'unhideColumnsSubmenu');
+        }
+
+        function positionSortSubmenu() {
+            positionSubmenu('sortMenuItem', 'sortSubmenu');
+        }
+
+        function positionSubmenu(menuItemId, submenuId) {
+            const menuItem = document.getElementById(menuItemId);
+            const submenu = document.getElementById(submenuId);
             if (!menuItem || !submenu) return;
 
             submenu.classList.remove('flip-left', 'flip-up');
@@ -2136,6 +2144,7 @@ export const scripts = `
         function hideContextMenu() {
             document.getElementById('contextMenu').style.display = 'none';
             document.getElementById('unhideColumnsMenuItem')?.classList.remove('submenu-open');
+            document.getElementById('sortMenuItem')?.classList.remove('submenu-open');
             document.getElementById('rowContextMenu').style.display = 'none';
             contextMenuColumn = null;
             contextMenuRow = null;
@@ -2169,6 +2178,11 @@ export const scripts = `
             if (!contextMenuColumn) return;
 
             switch (action) {
+                case 'sortMenu':
+                    // Parent of the sort submenu: toggle it and keep the menu open
+                    item.classList.toggle('submenu-open');
+                    positionSortSubmenu();
+                    return;
                 case 'displaySortAsc':
                     setDisplaySort(contextMenuColumn, 'asc');
                     break;
@@ -4459,6 +4473,7 @@ export const scripts = `
         document.getElementById('contextMenu').addEventListener('click', handleContextMenu);
         document.getElementById('rowContextMenu').addEventListener('click', handleRowContextMenu);
         document.getElementById('unhideColumnsMenuItem').addEventListener('mouseenter', positionUnhideColumnsSubmenu);
+        document.getElementById('sortMenuItem').addEventListener('mouseenter', positionSortSubmenu);
         
         // Hide context menus when clicking outside
         document.addEventListener('click', (e) => {

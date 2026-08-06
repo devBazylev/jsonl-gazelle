@@ -29,15 +29,21 @@ assert.ok(menuActions.length > 0, 'expected data-action entries in the column co
 menuActions.forEach(action => {
     assert.ok(scripts.includes("case '" + action + "'"), 'context menu action ' + action + ' has no handler');
 });
-// The sort entries specifically must be present in the menu markup, and each
-// must be marked column-only: the menu also opens from the row-number header
-// with no column selected, where sorting has nothing to act on.
+// The sort entries live in a "Sort" submenu rather than crowding the top level
+const sortSubmenu = contextMenu.slice(contextMenu.indexOf('id="sortSubmenu"'));
 ['displaySortAsc', 'displaySortDesc', 'clearDisplaySort', 'sortAsc', 'sortDesc'].forEach(action => {
     assert.ok(menuActions.includes(action), 'expected context menu entry for ' + action);
-    const entry = contextMenu.slice(contextMenu.indexOf('data-action="' + action + '"') - 120,
-        contextMenu.indexOf('data-action="' + action + '"'));
-    assert.ok(entry.includes('column-only'), 'sort entry ' + action + ' must be column-only');
+    assert.ok(sortSubmenu.includes('data-action="' + action + '"'),
+        'sort entry ' + action + ' must live inside the Sort submenu');
 });
+// The submenu's parent must be column-only: the menu also opens from the
+// row-number header with no column selected, where sorting has nothing to act on
+const sortParentEnd = contextMenu.indexOf('id="sortMenuItem"');
+const sortParent = contextMenu.slice(Math.max(0, sortParentEnd - 160), sortParentEnd);
+assert.ok(sortParent.includes('column-only'), 'the Sort menu entry must be column-only');
+assert.ok(sortParent.includes('has-submenu'), 'the Sort menu entry must be a submenu parent');
+// The type hint belongs with the sort entries it describes
+assert.ok(sortSubmenu.includes('id="sortTypeHint"'), 'the sort type hint must live in the Sort submenu');
 
 // The "row moved" notice needs its markup and both of its buttons wired up
 ['sortJumpNotice', 'sortJumpNoticeText', 'sortJumpGoBtn', 'sortJumpCloseBtn'].forEach(id => {

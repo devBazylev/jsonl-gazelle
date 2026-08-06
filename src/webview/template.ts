@@ -137,27 +137,34 @@ ${styles}
     </div>
 
     <div class="context-menu" id="contextMenu">
-        <div class="context-menu-hint column-only" id="sortTypeHint"></div>
-        <div class="context-menu-item column-only" data-action="displaySortAsc" title="Sort the table view only — the file on disk is not changed">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
-            Display Sorted Ascending
-        </div>
-        <div class="context-menu-item column-only" data-action="displaySortDesc" title="Sort the table view only — the file on disk is not changed">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
-            Display Sorted Descending
-        </div>
-        <div class="context-menu-item column-only" data-action="clearDisplaySort" id="clearDisplaySortMenuItem" style="display: none;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            Clear Display Sort
-        </div>
-        <div class="context-menu-separator column-only"></div>
-        <div class="context-menu-item column-only" data-action="sortAsc" title="Reorder the rows in the file itself (undo with Ctrl/Cmd+Z)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline><line x1="3" y1="22" x2="21" y2="22"></line></svg>
-            Sort Rows Ascending
-        </div>
-        <div class="context-menu-item column-only" data-action="sortDesc" title="Reorder the rows in the file itself (undo with Ctrl/Cmd+Z)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline><line x1="3" y1="22" x2="21" y2="22"></line></svg>
-            Sort Rows Descending
+        <div class="context-menu-item has-submenu column-only" data-action="sortMenu" id="sortMenuItem">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5h10"></path><path d="M11 9h7"></path><path d="M11 13h4"></path><path d="m3 17 4 4 4-4"></path><path d="M7 21V3"></path></svg>
+            <span>Sort</span>
+            <span class="submenu-arrow">›</span>
+            <div class="context-submenu" id="sortSubmenu">
+                <div class="context-menu-hint" id="sortTypeHint"></div>
+                <div class="context-menu-item" data-action="displaySortAsc" title="Sort the table view only - the file on disk is not changed">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"></path><path d="M7 20V4"></path><path d="M11 4h4"></path><path d="M11 8h7"></path><path d="M11 12h10"></path></svg>
+                    Display Sorted Ascending
+                </div>
+                <div class="context-menu-item" data-action="displaySortDesc" title="Sort the table view only - the file on disk is not changed">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"></path><path d="M7 20V4"></path><path d="M11 4h10"></path><path d="M11 8h7"></path><path d="M11 12h4"></path></svg>
+                    Display Sorted Descending
+                </div>
+                <div class="context-menu-item" data-action="clearDisplaySort" id="clearDisplaySortMenuItem" style="display: none;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    Clear Display Sort
+                </div>
+                <div class="context-menu-separator"></div>
+                <div class="context-menu-item" data-action="sortAsc" title="Reorder the rows in the file itself (undo with Ctrl/Cmd+Z)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"></path><path d="M7 20V4"></path><path d="M11 4h4"></path><path d="M11 8h7"></path><path d="M11 12h10"></path></svg>
+                    Sort Rows Ascending
+                </div>
+                <div class="context-menu-item" data-action="sortDesc" title="Reorder the rows in the file itself (undo with Ctrl/Cmd+Z)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 16 4 4 4-4"></path><path d="M7 20V4"></path><path d="M11 4h10"></path><path d="M11 8h7"></path><path d="M11 12h4"></path></svg>
+                    Sort Rows Descending
+                </div>
+            </div>
         </div>
         <div class="context-menu-separator column-only"></div>
         <div class="context-menu-item column-only" data-action="hideColumn">
