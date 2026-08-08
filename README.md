@@ -85,7 +85,10 @@ This will create `test-data/large.jsonl` with:
 The generated file is automatically excluded from git via `.gitignore` to keep the repository lightweight.
 
 ## What's next / Roadmap
-- [ ] Sorting by column https://github.com/gaborcselle/jsonl-gazelle/issues/58
+- [ ] **LLM / chat-format awareness**: detect `messages: [{role, content}]` rows and render them as a conversation, with format validation for fine-tuning and eval files
+- [ ] **Row detail side panel**: a resizable panel showing the selected row as pretty-printed JSON, so large fields stay readable without widening the table https://github.com/gaborcselle/jsonl-gazelle/issues/38
+- [ ] **Column profiling / stats popover**: per-column type distribution, null rate, distinct count, min/max/mean, and top values from the header context menu
+- [ ] **Spreadsheet keyboard navigation**: arrow keys to move a cell cursor, Enter to edit, Tab to advance
 
 ## License
 
